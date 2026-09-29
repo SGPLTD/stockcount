@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://unpkg.com/xlsx@latest/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Stock Count (TEST VERSION)</title>
+<style>
+:root{
+  --slate:#1A1F2E;--slate2:#252D40;--amber:#F5A623;--amber-dk:#C2821A;
+  --amber-lt:#FEF3DC;--amber-pal:#FFFBF2;--teal:#00B4A6;--teal-mid:#007A72;
+  --teal-pal:#E0F7F5;--green:#27AE60;--green-pal:#E8F8EF;--purple:#4A3580;
+  --purple-pal:#F0EEF8;--fog:#C8D0DC;--ice:#EBF0F5;--off:#F5F7FA;--white:#FFFFFF;
+  --charcoal:#3D4A5C;--smoke:#8896A8;
+  --pilks:#2E3852;--sg:#3D4A5C;--agc:#9A5EC8;--guard:#1A8AAD;--misc:#8896A8;
+  --nonstd:#E07B00;--nonstd-bg:#FFF0D6;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--off);color:var(--charcoal);}
+
+/* ── MODE SELECTOR ─────────────────────────────────────────────── */
+.mode-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px;background:var(--slate);}
+.mode-screen h1{color:white;font-size:1.4rem;font-weight:700;margin-bottom:6px;text-align:center;}
+.mode-screen .sub{color:var(--smoke);font-size:.82rem;margin-bottom:36px;text-align:center;}
+.mode-cards{display:flex;flex-direction:column;gap:14px;width:100%;max-width:360px;}
+.mode-card{background:white;border-radius:14px;padding:20px 20px 16px;cursor:pointer;
+  border:2px solid transparent;transition:all .15s;}
+.mode-card:active{transform:scale(.98);}
+.mode-card.monthly{border-color:var(--amber);}
+.mode-card.weekly{border-color:var(--teal);}
+.mode-icon{font-size:2rem;margin-bottom:8px;}
+.mode-title{font-size:1.05rem;font-weight:700;color:var(--slate);margin-bottom:4px;}
+.mode-desc{font-size:.78rem;color:var(--smoke);line-height:1.5;}
+.mode-badge{display:inline-block;margin-top:8px;padding:3px 10px;border-radius:20px;
+  font-size:.7rem;font-weight:700;}
+.mode-card.monthly .mode-badge{background:var(--amber);color:white;}
+.mode-card.weekly .mode-badge{background:var(--teal);color:white;}
+
+/* ── SHARED APP CHROME ─────────────────────────────────────────── */
+.app-header{background:var(--slate);padding:14px 16px 10px;position:sticky;top:0;z-index:100;
+  box-shadow:0 2px 8px rgba(0,0,0,.4);}
+.app-header h1{color:white;font-size:1.1rem;font-weight:700;}
+.app-header .sub{color:var(--smoke);font-size:.75rem;margin-top:1px;}
+.app-header .back-btn{display:inline-flex;align-items:center;gap:5px;color:var(--smoke);
+  font-size:.72rem;cursor:pointer;margin-bottom:4px;padding:2px 0;}
+.amber-bar{height:3px;background:var(--amber);}
+.teal-bar{height:3px;background:var(--teal);}
+.meta-row{display:flex;gap:8px;padding:10px 12px;background:white;border-bottom:1px solid var(--fog);}
+.meta-field{flex:1;}
+.meta-field label{display:block;font-size:.65rem;color:var(--smoke);font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;}
+.meta-field input{width:100%;padding:8px 10px;border:1.5px solid var(--fog);border-radius:8px;
+  font-size:.9rem;color:var(--charcoal);background:var(--off);outline:none;}
+.meta-field input:focus{border-color:var(--amber);background:white;}
+.tab-nav{display:flex;background:var(--slate2);}
+.tab-btn{flex:1;padding:9px 4px;color:var(--smoke);font-size:.78rem;font-weight:600;border:none;
+  background:none;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;}
+.tab-btn.active{color:var(--amber);border-bottom-color:var(--amber);background:rgba(245,166,35,.08);}
+
+/* ── SEARCH + PROGRESS ────────────────────────────────────────── */
+.search-bar{padding:8px 12px;background:white;border-bottom:1px solid var(--fog);}
+.search-bar input{width:100%;padding:8px 12px;border:1.5px solid var(--fog);border-radius:8px;
+  font-size:.9rem;color:var(--charcoal);background:var(--off);outline:none;}
+.search-bar input:focus{border-color:var(--amber);background:white;}
+.progress-bar{padding:6px 12px;background:var(--slate);display:flex;align-items:center;gap:8px;}
+.prog-track{flex:1;height:4px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;}
+.prog-fill{height:100%;background:var(--amber);border-radius:2px;transition:width .3s;}
+.prog-label{font-size:.7rem;color:var(--smoke);white-space:nowrap;}
+
+/* ── CATEGORY HEADERS ────────────────────────────────────────── */
+.cat-hdr{padding:7px 14px;font-size:.7rem;font-weight:700;letter-spacing:.08em;
+  color:white;text-transform:uppercase;background:var(--slate);border-left:3px solid var(--amber);}
+
+/* ── MONTHLY GLASS ────────────────────────────────────────────── */
+.product-list{padding:8px 10px;display:flex;flex-direction:column;gap:6px;}
+.prod-card{background:white;border-radius:10px;border:1.5px solid var(--fog);overflow:hidden;}
+.prod-card.counted{border-color:var(--amber);}
+.prod-card.nonstd-card{border-left:3px solid var(--nonstd);}
+.prod-hdr{display:flex;align-items:center;gap:8px;padding:9px 10px;cursor:pointer;
+  user-select:none;-webkit-tap-highlight-color:transparent;}
+.prod-mm{width:28px;height:28px;border-radius:50%;background:var(--slate);color:var(--amber);
+  font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.prod-name{flex:1;font-size:.9rem;font-weight:600;color:var(--slate);}
+.prod-badge{font-size:.65rem;padding:2px 7px;border-radius:20px;background:var(--ice);
+  color:var(--smoke);font-weight:500;white-space:nowrap;}
+.prod-card.counted .prod-badge{background:var(--amber);color:white;}
+.prod-card.nonstd-card .prod-name{color:var(--nonstd);}
+.prod-chevron{color:var(--fog);font-size:1rem;transition:transform .2s;flex-shrink:0;}
+.prod-card.open .prod-chevron{transform:rotate(180deg);}
+.prod-body{display:none;border-top:1px solid var(--fog);}
+.prod-card.open .prod-body{display:block;}
+.sup-block{border-bottom:1px solid rgba(0,0,0,.04);}
+.sup-block:last-child{border-bottom:none;}
+.sup-name{padding:5px 10px;font-size:.7rem;font-weight:700;color:white;letter-spacing:.05em;}
+.sup-name.pilks{background:var(--pilks);}.sup-name.sg{background:var(--sg);}
+.sup-name.agc{background:var(--agc);}.sup-name.guard{background:var(--guard);}
+.sup-name.misc{background:var(--misc);}
+.size-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:6px 8px;}
+.size-cell{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.size-lbl{font-size:.62rem;color:var(--smoke);font-weight:600;}
+.size-lbl.nonstd{color:var(--nonstd);font-weight:700;}
+.size-inp{width:100%;padding:7px 4px;border:1.5px solid var(--fog);border-radius:6px;
+  font-size:1rem;text-align:center;font-weight:700;color:var(--charcoal);background:white;
+  outline:none;-moz-appearance:textfield;}
+.size-inp::-webkit-inner-spin-button,.size-inp::-webkit-outer-spin-button{-webkit-appearance:none;}
+.size-inp:focus{border-color:var(--amber);}
+.size-inp.has-val{background:var(--amber-lt);border-color:var(--amber-dk);color:var(--amber-dk);}
+.size-cell.nonstd-cell .size-inp{border-color:var(--nonstd);}
+.size-cell.nonstd-cell .size-inp.has-val{background:var(--nonstd-bg);}
+
+/* ── MONTHLY CONSUMABLES ─────────────────────────────────────── */
+.cons-list{padding:8px 10px;display:flex;flex-direction:column;gap:6px;}
+.cons-card{background:white;border-radius:10px;border:1.5px solid var(--fog);padding:9px 10px;}
+.cons-card.counted{border-color:var(--amber);background:var(--amber-pal);}
+.cons-name{font-size:.85rem;font-weight:600;color:var(--slate);}
+.cons-sup{font-size:.75rem;color:var(--teal-mid);font-weight:700;margin-top:3px;}
+.qty-row{display:flex;align-items:center;gap:8px;margin-top:7px;}
+.qty-row label{font-size:.75rem;color:var(--smoke);flex:1;}
+.qty-inp{width:90px;padding:8px;border:1.5px solid var(--fog);border-radius:8px;font-size:1rem;
+  text-align:center;font-weight:700;color:var(--charcoal);background:var(--off);outline:none;
+  -moz-appearance:textfield;}
+.qty-inp::-webkit-inner-spin-button,.qty-inp::-webkit-outer-spin-button{-webkit-appearance:none;}
+.qty-inp:focus{border-color:var(--amber);background:white;}
+.qty-inp.has-val{background:var(--amber-lt);border-color:var(--amber-dk);color:var(--amber-dk);}
+
+/* ── WEEKLY GLASS (no supplier) ──────────────────────────────── */
+.wg-card{background:white;border-radius:10px;border:1.5px solid var(--fog);padding:9px 12px;
+  display:grid;grid-template-columns:1fr 70px 70px 70px;align-items:center;gap:6px;}
+.wg-card.counted{border-color:var(--teal);background:var(--teal-pal);}
+.wg-name{font-size:.85rem;font-weight:600;color:var(--slate);}
+.wg-sz{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.wg-lbl{font-size:.6rem;color:var(--smoke);font-weight:600;}
+.wg-inp{width:100%;padding:6px 2px;border:1.5px solid var(--fog);border-radius:6px;
+  font-size:.95rem;text-align:center;font-weight:700;color:var(--charcoal);background:white;
+  outline:none;-moz-appearance:textfield;}
+.wg-inp::-webkit-inner-spin-button,.wg-inp::-webkit-outer-spin-button{-webkit-appearance:none;}
+.wg-inp:focus{border-color:var(--teal);}
+.wg-inp.has-val{background:var(--teal-pal);border-color:var(--teal-mid);color:var(--teal-mid);}
+
+/* ── WEEKLY PVB / EVA / SF ───────────────────────────────────── */
+.w-list{padding:8px 10px;display:flex;flex-direction:column;gap:5px;}
+.w-card{background:white;border-radius:10px;border:1.5px solid var(--fog);padding:10px 12px;
+  display:flex;align-items:center;gap:10px;}
+.w-card.counted{border-color:var(--teal);background:var(--teal-pal);}
+.w-info{flex:1;min-width:0;}
+.w-type{font-size:.72rem;font-weight:700;color:var(--teal-mid);margin-bottom:2px;}
+.w-desc{font-size:.82rem;font-weight:600;color:var(--slate);line-height:1.3;}
+.w-sup{font-size:.7rem;color:var(--smoke);margin-top:1px;}
+.w-inp{width:72px;padding:8px 4px;border:1.5px solid var(--fog);border-radius:8px;
+  font-size:1rem;text-align:center;font-weight:700;color:var(--charcoal);background:var(--off);
+  outline:none;flex-shrink:0;-moz-appearance:textfield;}
+.w-inp::-webkit-inner-spin-button,.w-inp::-webkit-outer-spin-button{-webkit-appearance:none;}
+.w-inp:focus{border-color:var(--teal);background:white;}
+.w-inp.has-val{background:var(--teal-pal);border-color:var(--teal-mid);color:var(--teal-mid);}
+
+/* SF card has no min stock visible to counter */
+.sf-card{background:white;border-radius:10px;border:1.5px solid var(--fog);padding:10px 12px;
+  display:flex;align-items:center;gap:10px;}
+.sf-card.counted{border-color:var(--teal);background:var(--teal-pal);}
+.sf-info{flex:1;}
+.sf-item{font-size:.85rem;font-weight:600;color:var(--slate);}
+.sf-sup{font-size:.7rem;color:var(--smoke);margin-top:1px;}
+
+/* ── SUBMIT BAR ───────────────────────────────────────────────── */
+.submit-bar{position:fixed;bottom:0;left:0;right:0;padding:10px 14px;background:white;
+  border-top:1px solid var(--fog);box-shadow:0 -2px 12px rgba(0,0,0,.08);z-index:200;}
+.submit-btn{width:100%;padding:13px;background:var(--amber);color:white;border:none;
+  border-radius:10px;font-size:.95rem;font-weight:700;cursor:pointer;}
+.submit-btn.teal-btn{background:var(--teal);}
+.submit-btn:hover{opacity:.9;}
+.cnt-badge{text-align:center;font-size:.72rem;color:var(--smoke);margin-top:3px;}
+
+/* ── MODAL ────────────────────────────────────────────────────── */
+.modal-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;
+  align-items:flex-end;}
+.modal-wrap.open{display:flex;}
+.modal{background:white;border-radius:18px 18px 0 0;padding:18px 14px 28px;width:100%;
+  max-height:84vh;overflow-y:auto;}
+.modal h2{font-size:1.05rem;color:var(--slate);margin-bottom:2px;}
+.modal-sub{font-size:.75rem;color:var(--smoke);margin-bottom:10px;}
+.info-box{border-radius:8px;padding:9px 11px;font-size:.78rem;margin-bottom:10px;line-height:1.5;}
+.info-box.teal{background:var(--teal-pal);border:1px solid var(--teal);color:var(--charcoal);}
+.sum-sec{margin-bottom:12px;}
+.sum-sec h3{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--smoke);margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--fog);}
+.sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:.8rem;
+  border-bottom:1px solid var(--ice);}
+.sum-row .p{flex:1;color:var(--charcoal);}
+.sum-row .v{color:var(--slate);font-weight:600;font-size:.75rem;text-align:right;min-width:90px;}
+.modal-acts{display:flex;gap:8px;margin-top:14px;}
+.btn-sec{flex:1;padding:11px;background:var(--ice);color:var(--charcoal);border:none;
+  border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;}
+.btn-pri{flex:2;padding:11px;background:var(--green);color:white;border:none;
+  border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;}
+.btn-pri.teal-btn{background:var(--teal);}
+
+/* ── DONE SCREEN ─────────────────────────────────────────────── */
+.done{display:none;flex-direction:column;align-items:center;justify-content:center;
+  min-height:70vh;padding:32px 24px;text-align:center;}
+.done.show{display:flex;}
+.done-icon{font-size:3.5rem;margin-bottom:14px;}
+.done h2{font-size:1.25rem;color:var(--green);font-weight:700;margin-bottom:8px;}
+.done p{color:var(--smoke);font-size:.85rem;line-height:1.6;max-width:300px;}
+.done-steps{background:var(--ice);border-radius:10px;padding:12px 14px;margin:14px 0;
+  text-align:left;font-size:.82rem;line-height:2.1;width:100%;max-width:340px;}
+.restart{margin-top:6px;padding:10px 28px;background:var(--slate);color:white;border:none;
+  border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;}
+.hidden{display:none!important;}
+.meta-field select{width:100%;padding:8px 10px;border:1.5px solid var(--fog);border-radius:8px;
+  font-size:.9rem;color:var(--charcoal);background:var(--off);outline:none;}
+.month-note{padding:7px 12px;font-size:.74rem;background:var(--amber-pal);color:var(--charcoal);
+  border-bottom:1px solid var(--fog);line-height:1.45;}
+.wip-block{display:flex;align-items:center;gap:10px;padding:8px 10px 10px;border-top:1px dashed var(--fog);}
+.wip-block label{flex:1;font-size:.72rem;font-weight:700;color:var(--slate);}
+.wip-block label span{font-weight:400;color:var(--smoke);}
+.wip-block .size-inp{width:90px;flex:none;}
+.sp-account{margin-top:22px;color:var(--smoke);font-size:.72rem;text-align:center;}
+.sp-account b{color:var(--fog);font-weight:600;}
+.sp-account a{color:var(--amber);}
+.sp-busy{display:none;position:fixed;inset:0;background:rgba(26,31,46,.7);z-index:900;align-items:center;justify-content:center;}
+.sp-busy.open{display:flex;}
+.sp-busy-box{background:white;border-radius:14px;padding:22px 26px;text-align:center;max-width:280px;}
+.sp-spin{width:34px;height:34px;border:4px solid var(--ice);border-top-color:var(--amber);border-radius:50%;
+  margin:0 auto 12px;animation:spspin .8s linear infinite;}
+@keyframes spspin{to{transform:rotate(360deg)}}
+.sp-busy-msg{font-size:.85rem;color:var(--charcoal);}
+.mode-card.report{border-color:var(--purple);}
+.mode-card.report .mode-badge{background:var(--purple);color:white;}
+.rep-body{padding:16px;display:flex;flex-direction:column;gap:14px;max-width:520px;margin:0 auto;}
+.rep-status{font-size:.8rem;color:var(--smoke);text-align:center;}
+.import-row{padding:6px 12px;background:white;border-bottom:1px solid var(--fog);}
+.imp-btn{display:block;text-align:center;font-size:.74rem;font-weight:600;color:var(--purple);cursor:pointer;padding:4px;}
+
+.pb{padding-bottom:78px;}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- MODE SELECTOR                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="mode-screen" class="mode-screen">
+  <div style="background:var(--amber);color:var(--slate);font-weight:700;font-size:.75rem;padding:5px 12px;border-radius:20px;margin-bottom:14px">TEST VERSION - connected to SharePoint</div>
+  <h1>&#128230; SGP Stock Count</h1>
+  <div class="sub">What type of count are you doing today?</div>
+  <div class="mode-cards">
+    <div class="mode-card monthly" onclick="startMonthly()">
+      <div class="mode-icon">&#128202;</div>
+      <div class="mode-title">Monthly Stocktake</div>
+      <div class="mode-desc">Full count — all glass by supplier and size, all consumables with quantities</div>
+      <div class="mode-badge">End of month</div>
+    </div>
+    <div class="mode-card weekly" onclick="startMode('weekly')">
+      <div class="mode-icon">&#128337;</div>
+      <div class="mode-title">Weekly Stock Check</div>
+      <div class="mode-desc">Glass totals (no supplier split), PVB, EVA and shop floor consumables</div>
+      <div class="mode-badge">Weekly</div>
+    </div>
+    <div class="mode-card report" onclick="startReport()">
+      <div class="mode-icon">&#128209;</div>
+      <div class="mode-title">Month-end Report</div>
+      <div class="mode-desc">Office only - download the full stock list for the accountant, compared with the previous month</div>
+      <div class="mode-badge">Office</div>
+    </div>
+  </div>
+  <div id="sp-account" class="sp-account"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- MONTHLY APP (unchanged)                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="monthly-app" class="hidden">
+<div class="app-header">
+  <div class="back-btn" onclick="goBack()">&#8592; Change count type</div>
+  <h1>&#128202; Monthly Stocktake</h1>
+  <div class="sub">Enter your name, pick the month, then count glass and consumables</div>
+</div>
+<div class="amber-bar"></div>
+<div class="meta-row">
+  <div class="meta-field"><label>Your name</label><input type="text" id="cname" placeholder="e.g. John Smith"></div>
+  <div class="meta-field"><label>Stocktake month</label><select id="cmonth" onchange="selectMonth(this.value)"></select><input type="hidden" id="cdate"></div>
+</div>
+<div id="cmonth-note" class="month-note hidden"></div>
+<div class="import-row"><label class="imp-btn">&#11014; Import a count from the old app's Excel file<input type="file" accept=".xlsx" onchange="importOldFile(this)" hidden></label></div>
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('glass')">&#128306; Glass</button>
+  <button class="tab-btn" onclick="switchTab('cons')">&#128230; Consumables</button>
+</div>
+<div id="glass-tab">
+  <div class="search-bar"><input type="text" id="gs" placeholder="Search glass products..." oninput="filterGlass()"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="gprog" style="width:0%"></div></div><div class="prog-label" id="gprog-lbl">0 / 103 counted</div></div>
+  <div id="glass-list" class="pb"></div>
+</div>
+<div id="cons-tab" class="hidden">
+  <div class="search-bar"><input type="text" id="cs" placeholder="Search consumables..." oninput="filterCons()"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="cprog" style="width:0%"></div></div><div class="prog-label" id="cprog-lbl">0 / 264 counted</div></div>
+  <div id="cons-list" class="pb"></div>
+</div>
+<div class="submit-bar">
+  <button class="submit-btn" onclick="showSummary()">Review &amp; Submit Count</button>
+  <div class="cnt-badge" id="cbadge">0 items entered</div>
+</div>
+<div class="modal-wrap" id="modal" onclick="closeModal(event)">
+  <div class="modal">
+    <h2 id="mtitle">Count Summary</h2>
+    <div class="modal-sub" id="msub">Review before generating your Excel update</div>
+    <div id="mbody"></div>
+    <div class="modal-acts" id="macts"></div>
+  </div>
+</div>
+<div class="done" id="done">
+  <div class="done-icon">&#10004;&#65039;</div>
+  <h2>Count Submitted!</h2>
+  <p id="done-msg">Your count has been saved to SharePoint.</p>
+  <div class="done-steps"><b>That's it - nothing to send.</b><br>The office can see your count straight away.</div>
+  <button class="btn-pri" onclick="generateMonthlyPDF()" style="background:var(--teal);margin-bottom:10px">&#128196; Download a PDF copy (optional)</button>
+  <button class="restart" onclick="location.reload()">Back to start</button>
+</div>
+</div><!-- end monthly-app -->
+
+<div id="report-app" class="hidden">
+<div class="app-header">
+  <div class="back-btn" onclick="goBack()">&#8592; Back</div>
+  <h1>&#128209; Month-end Report</h1>
+  <div class="sub">Full stock list for the accountant, compared with another month</div>
+</div>
+<div class="teal-bar"></div>
+<div class="rep-body">
+  <div class="meta-field"><label>Stocktake month</label><select id="rmonth" onchange="repDefaultCompare()"></select></div>
+  <div class="meta-field"><label>Compare with</label><select id="rcomp"></select></div>
+  <div class="info-box teal">Downloads an Excel file with a <b>Summary</b> tab (glass, consumables, WIP and totals against the comparison month) and a <b>Full List</b> tab with every item, the movement, and anything worth checking highlighted.</div>
+  <button class="submit-btn teal-btn" onclick="downloadReport()">&#128190; Download Excel report</button>
+  <div id="rstatus" class="rep-status"></div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- WEEKLY APP                                              -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="weekly-app" class="hidden">
+<div class="app-header">
+  <div class="back-btn" onclick="goBack()">&#8592; Change count type</div>
+  <h1>&#128337; Weekly Stock Check</h1>
+  <div class="sub">Enter your name and date, then count your section</div>
+</div>
+<div class="teal-bar"></div>
+<div class="meta-row">
+  <div class="meta-field"><label>Your name</label><input type="text" id="wcname" placeholder="e.g. John Smith"></div>
+  <div class="meta-field"><label>Date</label><input type="date" id="wcdate"></div>
+</div>
+<div class="tab-nav" id="weekly-tabs">
+  <button class="tab-btn active" onclick="switchWeeklyTab('wglass')">&#128306; Glass</button>
+  <button class="tab-btn" onclick="switchWeeklyTab('wpvb')">PVB</button>
+  <button class="tab-btn" onclick="switchWeeklyTab('weva')">EVA</button>
+  <button class="tab-btn" onclick="switchWeeklyTab('wsf')">Shop Floor</button>
+  <button class="tab-btn" onclick="switchWeeklyTab('waf')">A-Frames</button>
+</div>
+
+<!-- Weekly Glass -->
+<div id="wglass-tab">
+  <div class="search-bar"><input type="text" id="wgs" placeholder="Search glass..." oninput="filterWeeklyGlass()"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="wgprog" style="width:0%"></div></div><div class="prog-label" id="wgprog-lbl">0 / W103 counted</div></div>
+  <div id="wglass-list" class="pb"></div>
+</div>
+
+<!-- Weekly PVB -->
+<div id="wpvb-tab" class="hidden">
+  <div class="search-bar"><input type="text" id="wps" placeholder="Search PVB..." oninput="filterWeeklyList('pvb')"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="wpprog" style="width:0%"></div></div><div class="prog-label" id="wpprog-lbl">0 / 55 counted</div></div>
+  <div id="wpvb-list" class="pb"></div>
+</div>
+
+<!-- Weekly EVA -->
+<div id="weva-tab" class="hidden">
+  <div class="search-bar"><input type="text" id="wes" placeholder="Search EVA..." oninput="filterWeeklyList('eva')"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="weprog" style="width:0%"></div></div><div class="prog-label" id="weprog-lbl">0 / 27 counted</div></div>
+  <div id="weva-list" class="pb"></div>
+</div>
+
+<!-- Weekly Shop Floor -->
+<div id="wsf-tab" class="hidden">
+  <div class="search-bar"><input type="text" id="wss" placeholder="Search shop floor..." oninput="filterWeeklyList('sf')"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="wsprog" style="width:0%"></div></div><div class="prog-label" id="wsprog-lbl">0 / 26 counted</div></div>
+  <div id="wsf-list" class="pb"></div>
+</div>
+
+<!-- Weekly A-Frames -->
+<div id="waf-tab" class="hidden">
+  <div class="search-bar"><input type="text" id="was" placeholder="Search A-Frames..." oninput="filterWeeklyList('af')"></div>
+  <div class="progress-bar"><div class="prog-track"><div class="prog-fill" id="wafprog" style="width:0%"></div></div><div class="prog-label" id="wafprog-lbl">0 / 12 counted</div></div>
+  <div id="waf-list" class="pb"></div>
+</div>
+
+<div class="submit-bar">
+  <button class="submit-btn teal-btn" onclick="generateAllPDFs()">&#128190; Generate &amp; Download PDFs</button>
+  <div class="cnt-badge" id="wcbadge">0 items entered</div>
+</div>
+<div class="modal-wrap" id="wmodal" onclick="closeWModal(event)">
+  <div class="modal">
+    <h2 id="wmtitle">Weekly Stock Check Summary</h2>
+    <div class="modal-sub" id="wmsub">Review before generating Excel</div>
+    <div id="wmbody"></div>
+    <div class="modal-acts" id="wmacts"></div>
+  </div>
+</div>
+<div class="done" id="wdone">
+  <div class="done-icon">&#10004;&#65039;</div>
+  <h2>Weekly Check Saved!</h2>
+  <p>Your Excel file has been downloaded.</p>
+  <div class="done-steps"><b>Send the file to purchasing</b><br>via Teams, email or WhatsApp.</div>
+  <button class="restart" onclick="location.reload()">Start New Count</button>
+</div>
+</div><!-- end weekly-app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════════════
+const SUPS=['Pilkington','Saint-Gobain','AGC','Guardian','Misc'];
+const SCLS=['pilks','sg','agc','guard','misc'];
+let GD=[];  // monthly glass - now loaded from SGP Products
+let CD=[];  // monthly consumables - now loaded from SGP Products
+const GRM={"3mm Clear": 5, "4mm Clear": 6, "5mm Clear": 7, "6mm Clear": 8, "8mm Clear": 9, "10mm Clear": 10, "12mm Clear": 11, "15mm Clear": 12, "19mm Clear": 13, "4mm Opti White": 15, "5mm Opti White": 16, "6mm Opti White": 17, "8mm Opti White": 18, "10mm Opti White": 19, "12mm Opti White": 20, "15mm Opti White": 21, "19mm Opti White": 22, "6mm OptiView": 24, "4mm Silver": 26, "6mm Silver": 27, "4mm Mirrorpane Chrome": 28, "6mm Mirrorpane": 29, "6mm MirrorView 70/20": 30, "4mm K": 33, "6mm K": 34, "4mm Satin": 36, "6mm Satin": 37, "8mm Satin": 38, "10mm Satin": 39, "6.4 Lami": 41, "6.4 K Lami": 42, "6.4 White Lami": 43, "10.8 White Lami": 44, "6.8 Lami": 45, "8.8 Lami": 46, "10.8 Lami": 47, "11.5 Lami": 48, "12.8 Lami": 49, "6.8 Acoustic Lami": 50, "8.8 Acoustic Lami": 51, "12.8 Acoustic Lami": 52, "10.8mm Acoustic Lami": 53, "6mm Grey": 54, "8mm Grey": 55, "10mm Grey": 56, "4mm Blue": 57, "6mm Blue": 58, "10mm Blue": 59, "6mm Bronze": 60, "8mm Bronze": 61, "10mm Bronze": 62, "4mm Bronze": 63, "5mm Clarity": 64, "6mm Sunguard": 65, "8mm Sunguard": 66, "10mm Sunguard": 67, "6mm Climaguard": 68, "8mm Climaguard": 69, "10mm Climaguard": 70, "6mm SN 70/35": 71, "8mm SN 70/35": 72, "10mm SN 70/35": 73, "6mm SN 43/31": 74, "8mm SN 43/31": 75, "12mm Suncool": 76, "6mm SN75": 78, "8mm SN75": 79, "8mm SKN176ii": 80, "6mm Black Lacobel (not TXN)": 81, "4mm lacobel T Cool White": 82, "6mm Lacobel T Cool White": 83, "6mm lacobel T Black": 84, "6mm Silver Antique": 85, "6mm Bronze Mirror": 86, "6mm Stopsol Clear": 87, "6mm Stopsol Grey": 88, "6mm Grey Silver": 89, "8mm Clearsight": 90, "10mm Clearsight": 91, "6mm Bronze Toughened Mirror": 92, "6mm Planitherm one": 93, "4mm Planitherm T": 94, "6mm Planitherm T": 95, "8mm Planitherm T": 96, "10mm Planitherm T": 97, "6mm 175ii": 98, "8mm 175ii": 99, "10mm 175ii": 100, "4mm Silverstar EN2+": 102, "6mm Silverstar EN2+": 103, "10mm Grey Satin": 104, "6mm KS": 105, "4mm Reeded": 106, "8mm Green": 107, "8mm Bright Silver": 108, "12mm Bright Silver": 109, "6mm green": 110, "6mm visiosun": 111, "4mm Visiosun": 112, "8mm Visiosun": 113, "10mm Green": 114, "10mm Dream": 115, "6mm Antique Morena": 116, "4mm KS": 117};
+const CRM={"PVB 130 Clear (Trosifol)": 5, "PVB 160 Clear (Trosifol)": 6, "PVB 165 Clear (Trosifol)": 7, "PVB 180 Clear (Trosifol)": 8, "PVB 225 Clear (Trosifol)": 9, "PVB 225 White": 10, "PVB 160 White": 11, "Trosifol Acoustic": 12, "Sentry 0.76 5000 1220": 13, "Sentry 0.76 5000 1530": 14, "Sentry 0.76 5000 1650": 15, "Sentry 0.76 5000 1830": 16, "Sentry 0.76 5000 2700": 17, "Sentry 0.89 5000 1220": 18, "Sentry 0.89 5000 1530": 19, "Sentry 0.89 5000 1650": 20, "Sentry 0.89 5000 1830": 21, "Sentry 0.89 5000 2700": 22, "Sentry 0.76 6000 1220": 23, "Sentry 0.76 6000 1300": 24, "Sentry 0.76 6000 1530": 25, "Sentry 0.76 6000 1650": 26, "Sentry 0.76 6000 1830": 27, "Sentry 0.76 6000 2250": 28, "Sentry 0.76 6000 2500": 29, "Sentry 0.89 6000 1220": 30, "Sentry 0.89 6000 1530": 31, "Sentry 0.89 6000 1830": 32, "Sentry 0.89 6000 1220 (B)": 33, "Sentry 0.89 6000 2500": 34, "Shining White": 35, "DG41 225": 36, "SG41 244": 37, "SG41 140": 38, "Sentry NU-V Clear": 39, "Sentry Trans White": 40, "B700/MR 800 Grey": 41, "Trosifol B800 Asahi Grey 0.38": 42, "Smoke Grey (Trosifol)": 43, "Artic Snow": 44, "Saflex Acoustic": 45, "Shale Grey (Vanceva)": 46, "Green PET masking tape 25mm - W.Hayes (roll)": 47, "Green PET masking tape 50mm - W.Hayes (roll)": 48, "High Temp Tape Blue (roll 50mm)": 49, "High Temp Tape Blue 25mm - Vac Inn (roll)": 50, "Tape Red/White (roll)": 51, "Tape Black (box)": 52, "Heavyweight Breather (roll)": 53, "Bagging Film (roll)": 54, "Green PET masking tape 50mm - Vac Inn (roll)": 55, "Clarity EVA 1100": 62, "Clarity EVA 1300": 63, "Clarity EVA 1540": 64, "Clarity EVA 2200": 65, "Clarity EVA 2500": 66, "Clarity EVA 2800": 67, "White/Diffused EVA 2200": 68, "Clear EVA 2200 - Daylight (0.38 )": 69, "Green PET masking tape 25mm - W.Hayes (EVA) (roll)": 70, "Green PET masking tape 50mm - W.Hayes (EVA) (roll)": 71, "High Temp Tape Blue 25mm - Vac Inn (EVA) (roll)": 72, "EVA Remover (5ltr)": 73, "Ultra clear EVA (0.76)": 74, "3M tape 1.5mm (roll)": 81, "3M tape 1mm (roll)": 82, "3M tape 2mm (roll)": 83, "Needles 21G Green (box)": 84, "Needles 23G Blue (box)": 85, "Needles 25G Orange (box)": 86, "Syringes (box 25)": 87, "Uvekol S15 (ltr)": 88, "VHB washers 40/28 (each)": 89, "VHB washers 52/40 (each)": 90, "Butyl Slug (each)": 97, "Butyl tape Inagas (box)": 98, "Butyl tape Kommerling (box)": 99, "Cartridges (each)": 100, "Catalyst 3363 (ltr)": 101, "Dessicant (each)": 102, "Spacer bar 8mm - DGS (mtr)": 103, "Spacer bar 10mm - DGS (mtr)": 104, "Spacer bar 12mm - DGS (mtr)": 105, "Spacer bar 14mm - DGS (mtr)": 106, "Spacer bar 16mm - DGS (mtr)": 107, "Spacer bar 18mm - DGS (mtr)": 108, "Spacer bar 20mm - DGS (mtr)": 109, "Spacer bar 22mm - DGS (mtr)": 110, "Spacer bar 24mm - DGS (mtr)": 111, "Spacer bar 27mm (mtr)": 112, "Hot melt slug": 113, "Isopropyl Alcohol 25 ltr": 114, "Nitrile Gloves (box)": 115, "Nozzles (each)": 116, "Plungers (each)": 117, "Silicone Sealant 3663 (ltr)": 118, "Static mixers - Spirals (each)": 119, "Spacer bar 8mm - Technoform (mtr)": 120, "Spacer bar 10mm - Technoform (mtr)": 121, "Spacer bar 12mm - Technoform (mtr)": 122, "Spacer bar 14mm - Technoform (mtr)": 123, "Spacer bar 16mm - Technoform (mtr)": 124, "Spacer bar 18mm - Technoform (mtr)": 125, "Spacer bar 20mm - Technoform (mtr)": 126, "Spacer bar 22mm - Technoform (mtr)": 127, "Spacer bar 24mm - Technoform (mtr)": 128, "Spacer bar 30mm (mtr)": 129, "9.5 x 18mm Black Interbar (Duplex)-(mtr)": 130, "11.5 x 24mm Black Interbar (Duplex)-(mtr)": 131, "11.5 x 18mm Black Interbar (Duplex)-(mtr)": 132, "15.5 x 18mm Black Interbar (Duplex)-(mtr)": 133, "8 x 18mm White Georgian": 134, "Branded SGP tape (roll)": 141, "Bubble wrap (roll)": 142, "Buckles (box/1000)": 143, "Craft paper (roll)": 144, "Cardboard corners (box/1000)": 145, "Corrugated paper (roll)": 146, "Cutting oil (5Ltr)": 147, "Cutting oil (30Ltr)": 148, "Fragile tape (roll)": 149, "Glass Cleaner Branded (each)": 150, "Invisible Shield (Ritec Alternative) 1Ltr": 151, "Mirabac 300mm (roll)": 152, "Mirabac 604mm (roll)": 153, "Pallet wrap (roll)": 154, "Pipe Lagging (Box)": 155, "Polystyrene Baton (each)": 156, "Polythene (roll)": 157, "Printed cord strap (roll)": 158, "Protective Film Green 300mm (roll)": 159, "Protective Film Green 600mm (roll)": 160, "Protective Film Blue300mm (roll)": 161, "Protective Film Blue 600mm (roll)": 162, "Renovator (bottle)": 163, "Rite Polish (bottle)": 164, "Ritec (5Ltr)": 165, "Rubber packing strips (each)": 166, "Sand blast grit (25kg bag)": 167, "Tissue (pack 2)": 168, "Travel Pads Large 50x50 (roll/500)": 169, "Travel Pads Red Medium 50x25 (roll/1000) - Discontinued": 170, "Travel Pads Small red 25x19 (roll/10000)": 171, "Travel Pads Small blue 25x19 (roll/10000)": 172, "Wax craft paper (roll)": 173, "Bio-Clean (bottle)": 174, "CS01 - WHITE (2.5ltr TIN)": 180, "CS02 - BLACK (2.5ltr TIN)": 181, "CS03 - RED OXIDE (2.5ltr TIN)": 182, "CS04 - YELLOW OXIDE (2.5ltr TIN)": 183, "CS05 - BLUE (2.5ltr TIN)": 184, "CS06 - GREEN (2.5ltr TIN)": 185, "CS09 - MAGENTA (2.5ltr TIN)": 186, "CS10 - VIOLET (2.5ltr TIN)": 187, "CS12 - GREEN SAHDE YELLOW (2.5ltr TIN)": 188, "CS13 BRIGHT RED (2.5ltr TIN)": 189, "CS14 MAROON (2.5ltr TIN)": 190, "CS15 RED SHADE YELLOW (2.5ltr TIN)": 191, "CS16 BRIGHT YELLOW (2.5ltr TIN)": 192, "CS17 BRIGHT ORANGE (2.5ltr TIN)": 193, "CS19 BLACK GLOSS (2.5ltr TIN)": 194, "CS34 ALUMINIUM (2.5ltr TIN)": 195, "PRE-MIXED RAL COLOUR TINS (2.5ltr TIN)": 196, "GLITTER TINS - Silver (1ltr TIN)": 197, "GLITTER TINS - Blue (1ltr TIN)": 198, "GLITTER TINS - Rainbow (1ltr TIN)": 199, "GLITTER TINS (1ltr TIN)": 200, "GLITTER TINS - Quartz Effect (1ltr TIN)": 201, "GLITTER TINS - Copper Effect (1ltr TIN)": 202, "CLEAR BASE A (25ltr TIN)": 203, "CLEAR BASE B (25ltr TIN)": 204, "STRUCTURE/FLECK ADDITIONS TINS (1ltr TIN)": 205, "THINNERS (25ltr DRUM)": 206, "UV BONDING GLUE (250gms)": 207, "MASKING TAPE (ROLL)": 208, "ETCH PRIMER KIT - 2 Part Kit (Each)": 209, "PRIMER KIT (Each)": 210, "PAINT CUPS (BOX 50)": 211, "APPLICATION TAPE/PAINT MASK 305MM (ROLL)": 212, "APPLICATION TAPE/PAINT MASK 610MM (ROLL)": 213, "APPLICATION TAPE/PAINT MASK 1220MM (ROLL)": 214, "METAMARK PAINT MASK/SANDBLAST MASK - BLUE(ROLL)": 215, "MATT EVENT FILM/VINYL BLACK/WHITE - 301 (ROLL)": 216, "MATT EVENT FILM/VINYL COLOURED - 304 (ROLL)": 217, "SATIN TIN (1ltr TIN)": 218, "STRUCTURE ADD (1ltr TIN)": 219, "FLECK (1ltr TIN)": 220, "Masking Film": 221, "Isopropanol (25ltr)": 222, "2K Thinners (5ltr)": 223, "Laquer Kit (clear coat)": 224, "Hardener (2.5ltr)": 225, "Polishing pad P1000 125mm (box)": 234, "Polishing pad P600 125mm (box)": 235, "Polishing pad P500 125mm (box)": 236, "Polishing pad P360 125mm (Box)": 237, "Polishing pad P1000 77mm (box)": 238, "Polishing pad P600 77mm (box)": 239, "Polishing pad P500 77mm (box)": 240, "Polishing pad P360 77mm (box)": 241, "Polishing Felt pad 125mm (box)": 242, "Polishing Felt pad 77mm (each)": 243, "Polarshine (bottle)": 244, "1200x980x1450 - Cases For Industry": 250, "1200x980x1850 - Cases For Industry": 251, "2100x980x1450 - Cases For Industry": 252, "2100x980x1850 - Cases For Industry": 253, "3100x980x1450 - Cases For Industry": 254, "3100x980x2100 - Cases For Industry": 255, "1200x980x1450 - DK Pallets": 256, "1200x980x1850 - DK Pallets": 257, "2100x980x1450 - DK Pallets": 258, "2100x980x1850 - DK Pallets": 259, "3100x980x1450 - DK Pallets": 260, "3100x980x2100 - DK Pallets": 261, "3600 x 800 x 2450 (each)": 264, "2200 x 800 x 2450 (each)": 265, "Classic Cut 120 Mesh Garnet - Water Jet (25kg Bag)": 271, "22 X 100 T12 Segmented Diamond D151 - SYS 000-015716": 272, "22 X 100 T30 Segmented Diamond D107 - SYS 000-020549": 273, "22 X 100 External Rough Trap Diamond 4mm Glass - SYS 000-016637": 274, "22 X 100 External Rough Trap Diamond 5mm Glass - SYS 000-008650": 275, "22 X 100 External Rough Trap Diamond 6mm Glass - SYS 000-011760": 276, "22 X 100 External Rough Trap Diamond 8mm Glass - SYS 000-011743": 277, "22 X 100 External Rough Trap Diamond 10mm Glass - SYS 000-011746": 278, "22 X 100 External Rough Trap Diamond 12mm Glass - SYS 000-011748": 279, "22 X 100 External Rough Trap Diamond 15mm Glass - SYS 000-011750": 280, "22 X 100 External Rough Trap Diamond 19mm Glass - SYS 000-011751": 281, "22 X 100 External Fine Trap Diamond 4mm Glass - SYS 000-008649": 282, "22 X 100 External Fine Trap Diamond 5mm Glass - SYS 000-008651": 283, "22 X 100 External Fine Trap Diamond 6mm Glass - SYS 000-008653": 284, "22 X 100 External Fine Trap Diamond 8mm Glass - SYS 000-008655": 285, "22 X 100 External Fine Trap Diamond 10mm Glass - SYS 000-008657": 286, "22 X 100 External Fine Trap Diamond 12mm Glass - SYS 000-008659": 287, "22 X 100 External Fine Trap Diamond 15mm Glass - SYS 000-008661": 288, "22 X 100 External Fine Trap Diamond 19mm Glass - SYS 000-008663": 289, "22 X 100 Internal Trap Router 4mm Glass - SYS 010-003509": 290, "22 X 100 Internal Trap Router 5mm Glass - SYS 010-003510": 291, "22 X 100 Internal Trap Router 6mm Glass - SYS 010-003511": 292, "22 X 100 Internal Trap Router 8mm Glass - SYS 010-003512": 293, "22 X 100 Internal Trap Router 10mm Glass - SYS 010-003513": 294, "22 X 100 Internal Trap Router 12mm Glass - SYS 010-003514": 295, "22 X 100 Internal Trap Router 15mm Glass - SYS 010-003515": 296, "22 X 100 Internal Trap Router 19mm Glass - SYS 010-003516": 297, "(Soft) Resin External 4mm & 5mm Glass - ITA ONE Plus 100x22x15mm": 298, "(Hard) Resin External 6mm Glass - ITA ONE 100x22x15mm": 299, "(Hard) Resin External 8mm Glass - ITA ONE 100x22x15mm": 300, "(Hard) Resin External 10mm Glass - ITA ONE 100x22x20mm": 301, "(Hard) Resin External 12mm Glass - ITA ONE 100x22x20mm": 302, "(Hard) Resin External 15mm Glass - ITA ONE 100x22x25mm": 303, "(Hard) Resin External 19mm Glass - ITA ONE 100x22x25mm": 304, "(Soft) Resin Internal 4,6,8,10,12mm Glass - 25X6X20 ONE - ITA E25620ONE": 305, "(Soft) Resin Internal 15mm Glass - 25X6X25 ONE - ITA E25625ONE": 306, "(Soft) Resin Internal 19mm Glass - 25X6X35 ONE - ITA E25635ONE": 307, "Sharpening Stick 200x50x6 - SYS 010-001526": 308, "Sharpening Stick 200x50x8 - SYS 010-002833": 309, "Cutting Nozzle Type 94 Saphire 0.35 Diameter - SYS 000-00485": 310, "Cutting Nozzle Type 94 Diamond 0.35 Diameter - SYS 000-002591": 311, "Focusing Tube L76,AD6, 35 ID1, 02 - SYS 010-0002138": 312, "Changing Seat - SYS 000-001500": 313, "Bag Filler Insert Needle felt 50ym - SYS 010-003565": 314, "800x800x800 Big Bag - SYS 0100-002016": 315, "Mixing Chamber - SYS 000-009610": 316, "CRL Flocculent 7418 - 25Ltr": 317};
+const SCOLS={"Pilkington": [3, 4, 5], "Saint-Gobain": [8, 9, 10], "AGC": [13, 14, 15], "Guardian": [18, 19, 20], "Misc": [23, 24, 25]};
+const WGD=[{"product": "3mm Clear", "mm": "3", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Clear", "mm": "4", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "5mm Clear", "mm": "5", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Clear", "mm": "6", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Clear", "mm": "8", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Clear", "mm": "10", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12mm Clear", "mm": "12", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "15mm Clear", "mm": "15", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "19mm Clear", "mm": "19", "category": "Clear Float", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Opti White", "mm": "4", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "5mm Opti White", "mm": "5", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Opti White", "mm": "6", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Opti White", "mm": "8", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Opti White", "mm": "10", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12mm Opti White", "mm": "12", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "15mm Opti White", "mm": "15", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "19mm Opti White", "mm": "19", "category": "Low Iron", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm OptiView", "mm": "6", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Silver", "mm": "4", "category": "Mirror", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Silver", "mm": "6", "category": "Mirror", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Mirrorpane Chrome", "mm": "4", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Mirrorpane", "mm": "6", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm MirrorView 70/20", "mm": "6", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm K", "mm": "4", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm K", "mm": "6", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Satin", "mm": "4", "category": "Satin", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Satin", "mm": "6", "category": "Satin", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Satin", "mm": "8", "category": "Satin", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Satin", "mm": "10", "category": "Satin", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6.4 Lami", "mm": "6.4", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6.4 K Lami", "mm": "6.4", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6.4 White Lami", "mm": "6.4", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10.8 White Lami", "mm": "10.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6.8 Lami", "mm": "6.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8.8 Lami", "mm": "8.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10.8 Lami", "mm": "10.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "11.5 Lami", "mm": "11.5", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12.8 Lami", "mm": "", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6.8 Acoustic Lami", "mm": "6.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8.8 Acoustic Lami", "mm": "8.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12.8 Acoustic Lami", "mm": "12.8", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10.8mm Acoustic Lami", "mm": "", "category": "Laminated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Grey", "mm": "6", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Grey", "mm": "8", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Grey", "mm": "10", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Blue", "mm": "4", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Blue", "mm": "6", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Blue", "mm": "10", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Bronze", "mm": "6", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Bronze", "mm": "8", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Bronze", "mm": "10", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Bronze", "mm": "4", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "5mm Clarity", "mm": "5", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Sunguard", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Sunguard", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Sunguard", "mm": "10", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Climaguard", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Climaguard", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Climaguard", "mm": "10", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm SN 70/35", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm SN 70/35", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm SN 70/35", "mm": "10", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm SN 43/31", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm SN 43/31", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12mm Suncool", "mm": "12", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm SN75", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm SN75", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm SKN176ii", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Black Lacobel (not TXN)", "mm": "6", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm lacobel T Cool White", "mm": "4", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Lacobel T Cool White", "mm": "6", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm lacobel T Black", "mm": "6", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Silver Antique", "mm": "6", "category": "Mirror", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Bronze Mirror", "mm": "6", "category": "Mirror", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Stopsol Clear", "mm": "6", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Stopsol Grey", "mm": "6", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Grey Silver", "mm": "6", "category": "Mirror", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Clearsight", "mm": "8", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Clearsight", "mm": "10", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Bronze Toughened Mirror", "mm": "6", "category": "Mirror", "sizes": ["6000", "2550", "4500"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "4500": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "4500": 0}, "AGC": {"6000": 0, "2550": 0, "4500": 0}, "Guardian": {"6000": 0, "2550": 0, "4500": 0}, "Misc": {"6000": 0, "2550": 0, "4500": 0}}, "wip": 0, "nonStd": true}, {"product": "6mm Planitherm one", "mm": "6", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Planitherm T", "mm": "4", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Planitherm T", "mm": "6", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Planitherm T", "mm": "8", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Planitherm T", "mm": "10", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm 175ii", "mm": "6", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm 175ii", "mm": "8", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm 175ii", "mm": "10", "category": "Solar Control", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Silverstar EN2+", "mm": "4", "category": "Specialist", "sizes": ["6000", "2550", "2000"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2000": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2000": 0}, "AGC": {"6000": 0, "2550": 0, "2000": 0}, "Guardian": {"6000": 0, "2550": 0, "2000": 0}, "Misc": {"6000": 0, "2550": 0, "2000": 0}}, "wip": 0, "nonStd": true}, {"product": "6mm Silverstar EN2+", "mm": "6", "category": "Specialist", "sizes": ["6000", "2550", "2000"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2000": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2000": 0}, "AGC": {"6000": 0, "2550": 0, "2000": 0}, "Guardian": {"6000": 0, "2550": 0, "2000": 0}, "Misc": {"6000": 0, "2550": 0, "2000": 0}}, "wip": 0, "nonStd": true}, {"product": "10mm Grey Satin", "mm": "", "category": "Satin", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm KS", "mm": "6", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "4mm Reeded", "mm": "4", "category": "Patterned", "sizes": ["6000", "2550", "1320"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "1320": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "1320": 0}, "AGC": {"6000": 0, "2550": 0, "1320": 0}, "Guardian": {"6000": 0, "2550": 0, "1320": 0}, "Misc": {"6000": 0, "2550": 0, "1320": 0}}, "wip": 0, "nonStd": true}, {"product": "8mm Green", "mm": "", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "8mm Bright Silver", "mm": "8", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "12mm Bright Silver", "mm": "", "category": "Coated", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm green", "mm": "6", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm visiosun", "mm": "6", "category": "Specialist", "sizes": ["6000", "2550", "2000"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2000": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2000": 0}, "AGC": {"6000": 0, "2550": 0, "2000": 0}, "Guardian": {"6000": 0, "2550": 0, "2000": 0}, "Misc": {"6000": 0, "2550": 0, "2000": 0}}, "wip": 0, "nonStd": true}, {"product": "4mm Visiosun", "mm": "4", "category": "Specialist", "sizes": ["6000", "2550", "2000"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2000": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2000": 0}, "AGC": {"6000": 0, "2550": 0, "2000": 0}, "Guardian": {"6000": 0, "2550": 0, "2000": 0}, "Misc": {"6000": 0, "2550": 0, "2000": 0}}, "wip": 0, "nonStd": true}, {"product": "8mm Visiosun", "mm": "8", "category": "Specialist", "sizes": ["6000", "2550", "2040"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2040": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2040": 0}, "AGC": {"6000": 0, "2550": 0, "2040": 0}, "Guardian": {"6000": 0, "2550": 0, "2040": 0}, "Misc": {"6000": 0, "2550": 0, "2040": 0}}, "wip": 0, "nonStd": true}, {"product": "10mm Green", "mm": "10", "category": "Tinted", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "10mm Dream", "mm": "10", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}, {"product": "6mm Antique Morena", "mm": "", "category": "Specialist", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false},{"product": "4mm KS", "mm": "4", "category": "Low-E", "sizes": ["6000", "2550", "2250"], "counts": {"Pilkington": {"6000": 0, "2550": 0, "2250": 0}, "Saint-Gobain": {"6000": 0, "2550": 0, "2250": 0}, "AGC": {"6000": 0, "2550": 0, "2250": 0}, "Guardian": {"6000": 0, "2550": 0, "2250": 0}, "Misc": {"6000": 0, "2550": 0, "2250": 0}}, "wip": 0, "nonStd": false}];
+const PVB=[{"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 122 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 130 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 153 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 160 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 183 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 225 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 250 X 0.76 x 60", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 122 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 130 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 153 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 160 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 183 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 225 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 6000 Clear 250 X 0.89 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Trosifol Clear", "description": "Trosifol HR Ultraclear B270 R 0.76 Clear 1300 x 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Trosifol Clear", "description": "Trosifol HR Ultraclear B270 R 0.76 Clear 1650 x 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Trosifol Clear", "description": "Trosifol HR Ultraclear B270 R 0.76 Clear 2250 x 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Shining White", "description": "Shining White -  0.38 -  W.17  - 9% 1600 x 30mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Trosifol Diffused", "description": "Trosifol B700 MR Translucent White 0.76 1600mm x 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Trosifol Diffused", "description": "Trosifol B700 MR Translucent White 0.76 2250mm x 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Acoustic", "description": "BF002189 \u2013 B110 R Clear 0.76 Acoustic 1550mm 200mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Grey", "description": "Grey Interlayer - 0.38 2250mm x 400mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Grey", "description": "Trosifol B800 Asahi Grey 0.38 2440mm x 50mtrs", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "Transluscent White 0.8mm 1830 x 200", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "Transluscent White 0.8mm 3300 x 60", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SentryGlas N-UV Clear 0.89mm 1830 x 200", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SentryGlas N-UV Clear 0.89mm 1220 x 200", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 122 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 130 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 153 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 160 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 183 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Kuraray", "type": "Sentry", "description": "SENTRYGLASXTRA 5000 Clear 225 X 0.76 x 250", "min_stock": "1 Roll"}, {"supplier": "Eastman/Solutia", "type": "Acoustic PVB", "description": "Saflex Acoustic Q541 2000mm x 247mtrs", "min_stock": "1 Roll"}, {"supplier": "Eastman/Solutia", "type": "Arctic Snow", "description": "RB 17 Arctic Snow 2460mm x 100m x 0.38mm", "min_stock": "1 Roll"}, {"supplier": "Eastman/Solutia", "type": "DG41", "description": "DG41 0000XC Extra Clear \u2013 0.76  2250mm x 247mtrs", "min_stock": "1 Roll"}, {"supplier": "Eastman/Solutia", "type": "SG41", "description": "SG41 0.76mm x 1400mm x 247mtrs", "min_stock": "1 Roll"}, {"supplier": "Eastman/Solutia", "type": "SG41", "description": "SG41 0.76mm x 2440mm x 20mtrs", "min_stock": "1 Roll"}, {"supplier": "VAC Innovations", "type": "Green Tape", "description": "Green PET masking tape 50mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "VAC Innovations", "type": "High Temp Tape", "description": "50mm x 66mtrs - Blue", "min_stock": "1 Box / 72 rolls"}, {"supplier": "VAC Innovations", "type": "Peel Ply", "description": "50mm x 100mtrs - White / red stripe", "min_stock": "5 Rolls"}, {"supplier": "VAC Innovations", "type": "Heavyweight Breather", "description": "70mm x 50mtrs", "min_stock": "5 Rolls"}, {"supplier": "VAC Innovations", "type": "Black Tape", "description": "3mm thick x 12mm x 15mtrs", "min_stock": "1 Box"}, {"supplier": "VAC Innovations", "type": "Vacuum Bagging Film", "description": "1500mm x 250mtrs - Orange bagging film", "min_stock": "1 Roll"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 25mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 30mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 50mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "Q-Del", "type": "Clear PVB- Small", "description": "PVB 0.76mm Butacite Clear, Interleaved 1600 x 200mtrs", "min_stock": "4 Rolls"}, {"supplier": "Q-Del", "type": "Clear PVB- Large", "description": "PVB 0.76mm Butacite Clear, Interleaved 2250 x 250mtrs", "min_stock": "2 Rolls"}, {"supplier": "DuPont", "type": "White PVB (Diffused)", "description": "0.76mm Butacite white translucent  2250 x 250mtrs", "min_stock": "1 roll"}, {"supplier": "Tygavac", "type": "High Temp Tape", "description": "50mm x 66mtrs - Blue", "min_stock": "1 Box / 72 rolls"}, {"supplier": "Tygavac", "type": "Peel Ply", "description": "50mm x 100mtrs - White / red stripe", "min_stock": "5 Rolls"}, {"supplier": "Tygavac", "type": "Heavyweight Breather", "description": "70mm x 50mtrs", "min_stock": "5 Rolls"}, {"supplier": "Tygavac", "type": "Black Tape", "description": "3mm thick x 12mm x 15mtrs", "min_stock": "1 Box"}, {"supplier": "Tygavac", "type": "Vacuum Bagging Film", "description": "1500mm x 250mtrs - Orange bagging film", "min_stock": "1 Roll"}];
+const EVA=[{"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 1100mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 1300mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 1540mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 2200mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 2500mm x 50m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "CLARITY EVA 0.76mm", "description": "Unilam Clarity EVA 0.76 - 2800mm x 50m", "min_stock": "TBC"}, {"supplier": "Unilam", "type": "Unilam REVA B", "description": "Milky White - 0.38mm \u2013 2200mm x 50m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "Remover", "description": "EVA Remover - 5 Ltr", "min_stock": "5 Ltr"}, {"supplier": "Xiangqirui", "type": "Ultra Clear EVA 0.76mm", "description": "Ultra Clear EVA Film 0.76 \u2013 2700mm x 50M", "min_stock": "TBC"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 25mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 30mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "William Hayes", "type": "Green Tape", "description": "Green PET masking tape 50mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "Vac Innovations", "type": "Green Tape", "description": "Green PET masking tape 50mm x 66m", "min_stock": "5 Rolls"}, {"supplier": "PM laminating", "type": "Daylight EVA", "description": "Daylight EVO200 -2200mm x 100mtrs 0.4mm", "min_stock": "TBA"}, {"supplier": "Unilam", "type": "REVA EVA 0.76mm", "description": "Unilam REVA EVA 0.76 - 1300mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "REVA EVA 0.76mm", "description": "Unilam REVA EVA 0.76 - 1540mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Unilam", "type": "REVA EVA 0.76mm", "description": "Unilam REVA EVA 0.76 - 2100mm x 80m", "min_stock": "1 Roll"}, {"supplier": "Satinal", "type": "Strato EVA", "description": "Strato EVA Film Extra 1300 x 0.8 x 50m", "min_stock": "5 Rolls"}, {"supplier": "Satinal", "type": "Strato EVA", "description": "Strato EVA Film Extra 1500 x 0.8 x 50m", "min_stock": "2 Rolls"}, {"supplier": "Satinal", "type": "Strato EVA", "description": "Strato EVA Film Extra 2200 x 0.8 x 50m", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "Clear EVA", "description": "1260mm x 130mtrs 0.38mm", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "Clear EVA", "description": "1800mm x 130mtrs 0.38mm", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "Clear EVA", "description": "2200mm x 130mtrs 0.38mm", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "Clear EVA", "description": "2400mm x 130mtrs 0.38mm", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "White EVA", "description": "2220mm x 65mtrs", "min_stock": "1 Roll"}, {"supplier": "Regalead", "type": "Green Tape", "description": "LAMTTAPE25 25mm x 66l/m Green PET tape", "min_stock": "5 Rolls"}, {"supplier": "Regalead", "type": "Green Tape", "description": "LAMTTAPE50 50mm x 66l/m Green PET tape", "min_stock": "5 Rolls"}];
+const SF=[{"supplier": "Simpson Packaging", "item": "Craft Paper", "min_stock": "1 Roll"}, {"supplier": "Simpson Packaging", "item": "Bubble Wrap", "min_stock": "1 Roll"}, {"supplier": "Simpson Packaging", "item": "Corrugated paper", "min_stock": "3 Roll"}, {"supplier": "Simpson Packaging", "item": "Ritec Paper", "min_stock": "1 Roll"}, {"supplier": "Simpson Packaging", "item": "Fragile/Glass Tape", "min_stock": "1 Box/36"}, {"supplier": "Simpson Packaging", "item": "Polythene", "min_stock": "1 Roll"}, {"supplier": "Direct Packaging", "item": "Pallet Wrap", "min_stock": "5 Box/6"}, {"supplier": "Macfarlane Packaging", "item": "SGP Branded Tape", "min_stock": "1 Box/36"}, {"supplier": "Bradford Rubber", "item": "Stillage Rubbers", "min_stock": "3 Packs/200"}, {"supplier": "Mega Fortris", "item": "Corners", "min_stock": "5 Boxes"}, {"supplier": "Mega Fortris", "item": "Banding", "min_stock": "30 Coils"}, {"supplier": "Mega Fortris", "item": "Buckles", "min_stock": "5 Boxes"}, {"supplier": "Protective Tapes", "item": "Protective Film 600mm", "min_stock": "5 Rolls"}, {"supplier": "Protective Tapes", "item": "Protective Film 300mm", "min_stock": "5 Rolls"}, {"supplier": "CR Laurence (SGP Branded)", "item": "Glass Cleaner", "min_stock": "20 Boxes"}, {"supplier": "CR Laurence", "item": "Mirabac 600mm", "min_stock": "2 Rolls"}, {"supplier": "CR Laurence", "item": "Mirabac 300mm", "min_stock": "2 Rolls"}, {"supplier": "CR Laurence", "item": "Travel Pads Small- Blue", "min_stock": "10 Rolls"}, {"supplier": "CR Laurence", "item": "Travel Pads Small- Red", "min_stock": "10 Rolls"}, {"supplier": "CR Laurence", "item": "Tavel Pads Red- 50x50", "min_stock": "40 Rolls"}, {"supplier": "CR Laurence", "item": "Bioclean", "min_stock": "2 Bottles"}, {"supplier": "Distinct Disposables", "item": "Tissue", "min_stock": "10 Cases"}, {"supplier": "Hodge Clemco Ltd", "item": "Sandblast Grit", "min_stock": "20 Bags"}, {"supplier": "KB Packaging", "item": "Polystyrene Batons", "min_stock": "2 Packs"}, {"supplier": "Regalead (paint vinyl backing)", "item": "Sandblast Mask", "min_stock": "1 Roll"}, {"supplier": "Spray Resins", "item": "Invisible Shield (Ritec Alternative)", "min_stock": "2 x 1Ltr"}];
+const AF=[{"product": "1200x980x1450"}, {"product": "1200x980x1850"}, {"product": "2100x980x1450"}, {"product": "2100x980x1850"}, {"product": "3100x980x1450"}, {"product": "3100x980x2100"}];
+
+// ── Monthly state ──────────────────────────────────────────────
+let gs={};let cs={};
+GD.forEach((p,i)=>{gs[i]={};SUPS.forEach(s=>{gs[i][s]={};p.sizes.forEach(sz=>{gs[i][s][sz]=p.counts?.[s]?.[sz]||0;});});});
+CD.forEach((p,i)=>{cs[i]=p.qty||0;});
+
+// ── Weekly state ───────────────────────────────────────────────
+const wgs={};  // weekly glass: {i: {sz: count}}
+const wpvb={}; // {i: count}
+const weva={}; // {i: count}
+const wsf={};  // {i: count}
+WGD.forEach((p,i)=>{wgs[i]={};p.sizes.forEach(sz=>{wgs[i][sz]=0;});});
+PVB.forEach((_,i)=>{wpvb[i]=0;});
+EVA.forEach((_,i)=>{weva[i]=0;});
+SF.forEach((_,i)=>{wsf[i]=0;});
+const waf={};
+AF.forEach((_,i)=>{waf[i]=0;});
+
+// ── Dates ──────────────────────────────────────────────────────
+const today=new Date().toISOString().split('T')[0];
+document.getElementById('cdate').value=today;
+document.getElementById('wcdate').value=today;
+document.getElementById('gprog-lbl').textContent='0 / '+GD.length+' counted';
+document.getElementById('cprog-lbl').textContent='0 / '+CD.length+' counted';
+document.getElementById('wgprog-lbl').textContent='0 / '+WGD.length+' counted';
+document.getElementById('wpprog-lbl').textContent='0 / '+PVB.length+' counted';
+document.getElementById('weprog-lbl').textContent='0 / '+EVA.length+' counted';
+document.getElementById('wsprog-lbl').textContent='0 / '+SF.length+' counted';
+document.getElementById('wafprog-lbl').textContent='0 / '+AF.length+' counted';
+
+// ═══════════════════════════════════════════════════════════════
+// MODE CONTROL
+// ═══════════════════════════════════════════════════════════════
+function startMode(mode){
+  document.getElementById('mode-screen').classList.add('hidden');
+  if(mode==='monthly'){
+    document.getElementById('monthly-app').classList.remove('hidden');
+    renderGlass(); renderCons(); updAll();
+  } else {
+    document.getElementById('weekly-app').classList.remove('hidden');
+    renderWeeklyGlass(); renderWeeklyList('pvb'); renderWeeklyList('eva'); renderWeeklyList('sf'); renderWeeklyList('af');
+    updWeeklyAll();
+  }
+}
+function goBack(){location.reload();}
+
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY — exact same as before
+// ═══════════════════════════════════════════════════════════════
+function switchTab(t){
+  document.querySelectorAll('#monthly-app .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===(t==='glass'?0:1)));
+  document.getElementById('glass-tab').classList.toggle('hidden',t!=='glass');
+  document.getElementById('cons-tab').classList.toggle('hidden',t==='glass');
+}
+function hasG(i){return SUPS.some(s=>GD[i].sizes.some(sz=>(gs[i][s]?.[sz]||0)>0));}
+function renderGlass(f=''){
+  const lc=f.toLowerCase();
+  const el=document.getElementById('glass-list');
+  const cats={};
+  GD.forEach((p,i)=>{
+    if(lc&&!p.product.toLowerCase().includes(lc))return;
+    const cat=p.category||'Other';
+    if(!cats[cat])cats[cat]=[];
+    cats[cat].push({p,i});
+  });
+  let h='';
+  Object.keys(cats).sort().forEach(cat=>{
+    h+=`<div class="cat-hdr">${cat}</div><div class="product-list">`;
+    cats[cat].forEach(({p,i})=>{
+      const hd=hasG(i);
+      h+=`<div class="prod-card${hd?' counted':''}${p.nonStd?' nonstd-card':''}" id="pc${i}">
+        <div class="prod-hdr" onclick="toggleCard(${i})">
+          <div class="prod-mm">${p.mm||'?'}</div>
+          <div class="prod-name">${p.product}</div>
+          <div class="prod-badge">${hd?'Counted':p.nonStd?'Non-std':''}</div>
+          <div class="prod-chevron">&#8964;</div>
+        </div>
+        <div class="prod-body">`;
+      SUPS.forEach((s,si)=>{
+        h+=`<div class="sup-block"><div class="sup-name ${SCLS[si]}">${s}</div><div class="size-row">`;
+        p.sizes.forEach((sz,szi)=>{
+          const ns=p.nonStd&&szi===2;
+          const v=gs[i][s]?.[sz]||'';
+          h+=`<div class="size-cell${ns?' nonstd-cell':''}">
+            <div class="size-lbl${ns?' nonstd':''}">${sz}${ns?'*':''}</div>
+            <input type="number" min="0" class="size-inp${v>0?' has-val':''}"
+              value="${v||''}" placeholder="0"
+              onchange="setG(${i},'${s}','${sz}',this.value)"
+              oninput="styleI(this)">
+          </div>`;
+        });
+        h+=`</div></div>`;
+      });
+      h+=`</div></div>`;
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+function renderCons(f=''){
+  const lc=f.toLowerCase();
+  const el=document.getElementById('cons-list');
+  const cats={};
+  CD.forEach((p,i)=>{
+    if(lc&&!p.product.toLowerCase().includes(lc)&&!p.category.toLowerCase().includes(lc))return;
+    if(!cats[p.category])cats[p.category]=[];
+    cats[p.category].push({p,i});
+  });
+  let h='';
+  Object.keys(cats).sort().forEach(cat=>{
+    h+=`<div class="cat-hdr">${cat}</div><div class="cons-list">`;
+    cats[cat].forEach(({p,i})=>{
+      const q=cs[i]||'';const hd=q>0;
+      h+=`<div class="cons-card${hd?' counted':''}" id="cc${i}">
+        <div class="cons-name">${p.product}</div>
+        ${p.supplier?`<div class="cons-sup">${p.supplier}</div>`:''}
+        <div class="qty-row"><label>Quantity</label>
+        <input type="number" min="0" step="0.5" class="qty-inp${hd?' has-val':''}"
+          value="${q||''}" placeholder="0"
+          onchange="setC(${i},this.value)" oninput="styleQ(${i},this)">
+        </div></div>`;
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+function toggleCard(i){document.getElementById('pc'+i).classList.toggle('open');}
+function setG(i,s,sz,v){gs[i][s][sz]=parseFloat(v)||0;const hd=hasG(i);const c=document.getElementById('pc'+i);if(c){c.classList.toggle('counted',hd);const b=c.querySelector('.prod-badge');if(b)b.textContent=hd?'Counted':GD[i].nonStd?'Non-std':'';}updAll();}
+function setC(i,v){cs[i]=parseFloat(v)||0;updAll();}
+function styleI(el){el.classList.toggle('has-val',parseFloat(el.value)>0);}
+function styleQ(i,el){const hd=parseFloat(el.value)>0;el.classList.toggle('has-val',hd);const c=document.getElementById('cc'+i);if(c)c.classList.toggle('counted',hd);updAll();}
+function updAll(){
+  const gn=GD.filter((_,i)=>hasG(i)).length;
+  const cn=CD.filter((_,i)=>cs[i]>0).length;
+  document.getElementById('cbadge').textContent=gn+cn+' items - '+gn+' glass - '+cn+' consumables';
+  document.getElementById('gprog').style.width=Math.round(gn/GD.length*100)+'%';
+  document.getElementById('gprog-lbl').textContent=gn+' / '+GD.length+' counted';
+  document.getElementById('cprog').style.width=Math.round(cn/CD.length*100)+'%';
+  document.getElementById('cprog-lbl').textContent=cn+' / '+CD.length+' counted';
+}
+function filterGlass(){renderGlass(document.getElementById('gs').value);}
+function filterCons(){renderCons(document.getElementById('cs').value);}
+function showSummary(){
+  document.getElementById('mtitle').textContent='Count Summary';
+  document.getElementById('msub').textContent='Review before submitting';
+  let h=`<div class="info-box teal">Check your counts, then submit. They save straight to SharePoint for <b>${esc(CUR_MONTH?CUR_MONTH.title:'')}</b>.</div>`;
+  const gc=GD.filter((_,i)=>hasG(i));
+  const cc=CD.filter((_,i)=>cs[i]>0);
+  if(gc.length){
+    h+='<div class="sum-sec"><h3>Glass ('+gc.length+' products)</h3>';
+    GD.forEach((p,i)=>{
+      if(!hasG(i))return;
+      h+=`<div class="sum-row"><div class="p" style="font-weight:600">${p.product}</div></div>`;
+      SUPS.forEach(s=>{const pts=p.sizes.filter(sz=>(gs[i][s]?.[sz]||0)>0).map(sz=>`${sz}: ${gs[i][s][sz]}`);if(pts.length)h+=`<div class="sum-row" style="padding-left:10px"><div class="p" style="color:var(--smoke)">${s}</div><div class="v">${pts.join(' - ')}</div></div>`;});
+    });
+    h+='</div>';
+  }
+  if(cc.length){
+    let cur='';
+    h+='<div class="sum-sec"><h3>Consumables ('+cc.length+' items)</h3>';
+    CD.forEach((p,i)=>{
+      if(cs[i]<=0)return;
+      if(p.category!==cur){cur=p.category;h+=`<div class="sum-row" style="background:var(--ice)"><div class="p" style="font-weight:700;font-size:.7rem;text-transform:uppercase;color:var(--smoke)">${p.category}</div></div>`;}
+      h+=`<div class="sum-row"><div class="p">${p.product}</div><div class="v">Qty: ${cs[i]}</div></div>`;
+    });
+    h+='</div>';
+  }
+  if(!gc.length&&!cc.length)h+='<p style="color:var(--smoke);text-align:center;padding:20px 0">No items counted yet.</p>';
+  document.getElementById('mbody').innerHTML=h;
+  document.getElementById('macts').innerHTML=`<button class="btn-sec" onclick="closeModal()">&#8592; Back</button><button id="mdlSubmitBtn" class="btn-pri" onclick="submitCount()">&#10004; Submit to SharePoint</button>`;
+  document.getElementById('modal').classList.add('open');
+}
+function generateExcel(){
+  if(typeof XLSX==='undefined'){
+    alert('Libraries are still loading. Please wait a moment and try again.');
+    return;
+  }
+  const btn=document.getElementById('mdlExcelBtn');
+  if(btn){btn.disabled=true;btn.textContent='Generating...';}
+  setTimeout(()=>{
+    try{
+      const wb=XLSX.utils.book_new();
+      const name=document.getElementById('cname').value||'Unknown';
+      const date=document.getElementById('cdate').value||today;
+      const GROWS=120;const GCOLS=33;
+      const gdata=Array.from({length:GROWS},()=>new Array(GCOLS).fill(null));
+      GD.forEach((p,i)=>{
+        if(!hasG(i))return;
+        const sr=GRM[p.product];if(!sr)return;
+        const ri=sr-1;
+        SUPS.forEach(s=>{
+          const cols=SCOLS[s];
+          p.sizes.forEach((sz,szi)=>{
+            const v=gs[i][s]?.[sz]||0;
+            if(v>0)gdata[ri][cols[szi]-1]=v;
+          });
+        });
+      });
+      let glr=0;gdata.forEach((r,ri)=>{if(r.some(v=>v!==null))glr=ri;});
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(gdata.slice(0,glr+1)),'GLASS Stocktake');
+      const CROWS=320;
+      const cdata=Array.from({length:CROWS},()=>[null]);
+      CD.forEach((p,i)=>{
+        if(cs[i]<=0)return;
+        const sr=CRM[p.product];if(!sr)return;
+        cdata[sr-1][0]=cs[i];
+      });
+      let clr=0;cdata.forEach((r,ri)=>{if(r[0]!==null)clr=ri;});
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(cdata.slice(0,clr+1)),'CONSUMABLES Stocktake');
+      const sumRows=[
+        ['STOCK COUNT - READABLE SUMMARY'],[''],
+        ['Counted by:',name],['Date:',date],
+        ['Generated:',new Date().toLocaleString('en-GB')],[''],
+        ['Glass products counted:',GD.filter((_,i)=>hasG(i)).length],
+        ['Consumables counted:',CD.filter((_,i)=>cs[i]>0).length],[''],
+      ];
+      if(GD.filter((_,i)=>hasG(i)).length){
+        sumRows.push(['=== GLASS ===']);
+        sumRows.push(['Product','Supplier','Sheet Size','Sheets Counted']);
+        GD.forEach((p,i)=>{
+          if(!hasG(i))return;
+          let first=true;
+          SUPS.forEach(s=>{p.sizes.forEach(sz=>{const v=gs[i][s]?.[sz]||0;if(v>0){sumRows.push([first?p.product:'',s,sz+'mm',v]);first=false;}});});
+        });
+        sumRows.push(['']);
+      }
+      if(CD.filter((_,i)=>cs[i]>0).length){
+        sumRows.push(['=== CONSUMABLES ===']);
+        sumRows.push(['Category','Product','Supplier','Quantity']);
+        let lastCat='';
+        CD.forEach((p,i)=>{
+          if(cs[i]<=0)return;
+          sumRows.push([p.category!==lastCat?(lastCat=p.category,p.category):'',p.product,p.supplier||'',cs[i]]);
+        });
+      }
+      const sumSheet=XLSX.utils.aoa_to_sheet(sumRows);
+      sumSheet['!cols']=[{wch:30},{wch:20},{wch:14},{wch:12}];
+      XLSX.utils.book_append_sheet(wb,sumSheet,'Count Summary');
+      XLSX.writeFile(wb,'stock_count_'+date+'_'+name.replace(/\s+/g,'_')+'.xlsx');
+      document.getElementById('modal').classList.remove('open');
+      document.getElementById('done').classList.add('show');
+      document.querySelector('#monthly-app .submit-bar').style.display='none';
+      document.getElementById('glass-tab').classList.add('hidden');
+      document.getElementById('cons-tab').classList.add('hidden');
+      document.querySelector('#monthly-app .tab-nav').style.display='none';
+      document.querySelector('#monthly-app .meta-row').style.display='none';
+      document.querySelector('#monthly-app .amber-bar').style.display='none';
+    }catch(e){alert('Error: '+e.message);if(btn){btn.disabled=false;btn.textContent='Generate Excel';}}
+  },80);
+}
+function closeModal(e){if(!e||e.target===document.getElementById('modal'))document.getElementById('modal').classList.remove('open');}
+
+function generateMonthlyPDF(){
+  const btn=document.getElementById('mdlPdfBtn')||document.getElementById('donePdfBtn');
+  if(typeof jspdf==='undefined'){
+    alert('The PDF library failed to load (check your internet connection) \u2014 please try again.');
+    return;
+  }
+  if(btn){btn.disabled=true;btn.textContent='Generating...';}
+  try{
+    const name=document.getElementById('cname').value||'Unknown';
+    const date=document.getElementById('cdate').value||today;
+    const gc=GD.filter((_,i)=>hasG(i));
+    const cc=CD.filter((_,i)=>cs[i]>0);
+
+    const doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    doc.setFillColor(27,58,107);
+    doc.rect(0,0,210,14,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(13);
+    doc.setFont(undefined,'bold');
+    doc.text('SGP MONTHLY STOCK CHECK',6,9.5);
+    doc.setTextColor(61,74,92);
+    doc.setFontSize(10);
+    doc.setFont(undefined,'normal');
+    doc.text('Date: '+date+'     Counted by: '+name,6,21);
+
+    let y=27;
+
+    if(gc.length){
+      const body=[];
+      const cats={};
+      GD.forEach((p,i)=>{if(!hasG(i))return;if(!cats[p.category])cats[p.category]=[];cats[p.category].push({p,i});});
+      Object.keys(cats).sort().forEach(cat=>{
+        body.push([{content:'--- '+cat.toUpperCase()+' ---',colSpan:4,styles:{fontStyle:'bold',fillColor:[245,247,250],textColor:[136,150,168]}}]);
+        cats[cat].forEach(({p,i})=>{
+          let first=true;
+          SUPS.forEach(s=>{
+            p.sizes.forEach(sz=>{
+              const v=gs[i][s]?.[sz]||0;
+              if(v>0){
+                const nsNote=(p.nonStd && sz===p.sizes[2])?' (NS)':'';
+                body.push([first?p.product:'', s, sz+'mm'+nsNote, String(v)]);
+                first=false;
+              }
+            });
+          });
+        });
+      });
+      doc.autoTable({
+        startY:y,
+        head:[['PRODUCT','SUPPLIER','SIZE','COUNTED']],
+        body:body,
+        theme:'grid',
+        headStyles:{fillColor:[27,58,107],textColor:255,fontSize:8},
+        bodyStyles:{fontSize:8},
+        columnStyles:{2:{halign:'center'},3:{halign:'center'}},
+        margin:{left:6,right:6}
+      });
+      y=doc.lastAutoTable.finalY+8;
+    }
+
+    if(cc.length){
+      const body2=[];
+      let lastCat='';
+      CD.forEach((p,i)=>{
+        if(cs[i]<=0)return;
+        const showCat=p.category!==lastCat;lastCat=p.category;
+        body2.push([showCat?p.category:'', p.product, p.supplier||'', String(cs[i])]);
+      });
+      doc.autoTable({
+        startY:y,
+        head:[['CATEGORY','PRODUCT','SUPPLIER','QTY']],
+        body:body2,
+        theme:'grid',
+        headStyles:{fillColor:[0,180,166],textColor:255,fontSize:8},
+        bodyStyles:{fontSize:8},
+        columnStyles:{3:{halign:'center'}},
+        margin:{left:6,right:6}
+      });
+      y=doc.lastAutoTable.finalY+8;
+    }
+
+    if(!gc.length&&!cc.length){
+      doc.setFontSize(11);
+      doc.text('No items counted yet.',6,y);
+    }
+
+    doc.save('sgp_monthly_stock_check_'+date+'_'+name.replace(/\s+/g,'_')+'.pdf');
+    if(btn){btn.disabled=false;btn.textContent='\u{1F4C4} Generate PDF (for your records)';}
+  }catch(e){
+    alert('Error generating PDF: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='\u{1F4C4} Generate PDF (for your records)';}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WEEKLY
+// ═══════════════════════════════════════════════════════════════
+function switchWeeklyTab(t){
+  const tabs=['wglass','wpvb','weva','wsf','waf'];
+  const btns=document.querySelectorAll('#weekly-tabs .tab-btn');
+  tabs.forEach((id,i)=>{
+    document.getElementById(id+'-tab').classList.toggle('hidden',id!==t);
+    btns[i].classList.toggle('active',id===t);
+  });
+}
+
+// Weekly glass — no supplier split
+function hasWG(i){return WGD[i].sizes.some(sz=>(wgs[i]?.[sz]||0)>0);}
+function hasAF(i){return waf[i]>0;}
+function renderWeeklyGlass(f=''){
+  const lc=f.toLowerCase();
+  const el=document.getElementById('wglass-list');
+  const cats={};
+  WGD.forEach((p,i)=>{
+    if(lc&&!p.product.toLowerCase().includes(lc))return;
+    if(!cats[p.category])cats[p.category]=[];
+    cats[p.category].push({p,i});
+  });
+  let h='';
+  Object.keys(cats).sort().forEach(cat=>{
+    h+=`<div class="cat-hdr">${cat}</div><div class="cons-list">`;
+    cats[cat].forEach(({p,i})=>{
+      const hd=hasWG(i);
+      h+=`<div class="wg-card${hd?' counted':''}" id="wgc${i}">
+        <div class="wg-name">${p.product}</div>`;
+      // Show 3 sizes in original data order (6000, 2550, 2250)
+      p.sizes.forEach(sz=>{
+        const v=wgs[i]?.[sz]||'';
+        h+=`<div class="wg-sz">
+          <div class="wg-lbl">${sz}mm</div>
+          <input type="number" min="0" class="wg-inp${v>0?' has-val':''}"
+            value="${v||''}" placeholder="0"
+            onchange="setWG(${i},'${sz}',this.value)" oninput="styleWG(${i},this)">
+        </div>`;
+      });
+      h+=`</div>`;
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+function setWG(i,sz,v){
+  wgs[i][sz]=parseFloat(v)||0;
+  const hd=hasWG(i);
+  document.getElementById('wgc'+i)?.classList.toggle('counted',hd);
+  updWeeklyAll();
+}
+function styleWG(i,el){el.classList.toggle('has-val',parseFloat(el.value)>0);}
+function filterWeeklyGlass(){renderWeeklyGlass(document.getElementById('wgs').value);}
+
+// Weekly PVB/EVA lists
+function renderWeeklyList(type){
+  const data=type==='pvb'?PVB:type==='eva'?EVA:type==='sf'?SF:AF;
+  const state=type==='pvb'?wpvb:type==='eva'?weva:type==='sf'?wsf:waf;
+  const elId=`w${type}-list`;
+  const searchId=type==='af'?'was':`w${type==='sf'?'s':''+type[0]}s`;
+  const f=(document.getElementById(type==='pvb'?'wps':type==='eva'?'wes':type==='sf'?'wss':'was')||{value:''}).value.toLowerCase();
+  const el=document.getElementById(elId);
+
+  if(type==='af'){
+    // A-Frames: no grouping, just a simple list
+    let h='<div class="w-list">';
+    AF.forEach((p,i)=>{
+      if(f&&!p.product.toLowerCase().includes(f))return;
+      const v=state[i]||'';const hd=v>0;
+      h+=`<div class="sf-card${hd?' counted':''}" id="wafc${i}">
+        <div class="sf-info">
+          <div class="sf-item">${p.product}</div>
+        </div>
+        <input type="number" min="0" step="0.5" class="w-inp${hd?' has-val':''}"
+          value="${v||''}" placeholder="0"
+          onchange="setWL('af',${i},this.value)" oninput="styleWL('af',${i},this)">
+      </div>`;
+    });
+    h+='</div>';
+    el.innerHTML=h;
+  } else {
+    // PVB, EVA, Shop Floor: grouped by supplier
+    const cats={};
+    data.forEach((p,i)=>{
+      const key=type==='sf'?p.supplier:(p.supplier||'Other');
+      const name=type==='sf'?p.item:p.description;
+      if(f&&!name.toLowerCase().includes(f)&&!key.toLowerCase().includes(f))return;
+      if(!cats[key])cats[key]=[];
+      cats[key].push({p,i});
+    });
+
+    let h='';
+    Object.keys(cats).sort().forEach(sup=>{
+      h+=`<div class="cat-hdr">${sup}</div><div class="w-list">`;
+      cats[sup].forEach(({p,i})=>{
+        const v=state[i]||'';const hd=v>0;
+        if(type==='sf'){
+          h+=`<div class="sf-card${hd?' counted':''}" id="w${type}c${i}">
+            <div class="sf-info">
+              <div class="sf-item">${p.item}</div>
+              <div class="sf-sup">${p.supplier}</div>
+            </div>
+            <input type="number" min="0" step="0.5" class="w-inp${hd?' has-val':''}"
+              value="${v||''}" placeholder="0"
+              onchange="setWL('${type}',${i},this.value)" oninput="styleWL('${type}',${i},this)">
+          </div>`;
+        } else {
+          h+=`<div class="w-card${hd?' counted':''}" id="w${type}c${i}">
+            <div class="w-info">
+              <div class="w-type">${p.type}</div>
+              <div class="w-desc">${p.description}</div>
+              <div class="w-sup">${p.supplier}</div>
+            </div>
+            <input type="number" min="0" step="0.5" class="w-inp${hd?' has-val':''}"
+              value="${v||''}" placeholder="0"
+              onchange="setWL('${type}',${i},this.value)" oninput="styleWL('${type}',${i},this)">
+          </div>`;
+        }
+      });
+      h+='</div>';
+    });
+    el.innerHTML=h;
+  }
+}
+function setWL(type,i,v){
+  const state=type==='pvb'?wpvb:type==='eva'?weva:type==='sf'?wsf:waf;
+  state[i]=parseFloat(v)||0;
+  document.getElementById('w'+type+'c'+i)?.classList.toggle('counted',state[i]>0);
+  updWeeklyAll();
+}
+function styleWL(type,i,el){
+  el.classList.toggle('has-val',parseFloat(el.value)>0);
+}
+function filterWeeklyList(type){renderWeeklyList(type);}
+
+function updWeeklyAll(){
+  const wgn=WGD.filter((_,i)=>hasWG(i)).length;
+  const pvbn=PVB.filter((_,i)=>wpvb[i]>0).length;
+  const evan=EVA.filter((_,i)=>weva[i]>0).length;
+  const sfn=SF.filter((_,i)=>wsf[i]>0).length;
+  const afn=AF.filter((_,i)=>waf[i]>0).length;
+  const total=wgn+pvbn+evan+sfn+afn;
+  document.getElementById('wcbadge').textContent=total+' items entered';
+  document.getElementById('wgprog').style.width=Math.round(wgn/WGD.length*100)+'%';
+  document.getElementById('wgprog-lbl').textContent=wgn+' / '+WGD.length+' counted';
+  document.getElementById('wpprog').style.width=Math.round(pvbn/PVB.length*100)+'%';
+  document.getElementById('wpprog-lbl').textContent=pvbn+' / '+PVB.length+' counted';
+  document.getElementById('weprog').style.width=Math.round(evan/EVA.length*100)+'%';
+  document.getElementById('weprog-lbl').textContent=evan+' / '+EVA.length+' counted';
+  document.getElementById('wsprog').style.width=Math.round(sfn/SF.length*100)+'%';
+  document.getElementById('wsprog-lbl').textContent=sfn+' / '+SF.length+' counted';
+  document.getElementById('wafprog').style.width=Math.round(afn/AF.length*100)+'%';
+  document.getElementById('wafprog-lbl').textContent=afn+' / '+AF.length+' counted';
+}
+
+function showWeeklySummary(){
+  let h=`<div class="info-box teal">This generates an Excel file for purchasing with all counts, minimum stock levels and space to record P/O numbers.</div>`;
+  const wgn=WGD.filter((_,i)=>hasWG(i));
+  const pvbn=PVB.filter((_,i)=>wpvb[i]>0);
+  const evan=EVA.filter((_,i)=>weva[i]>0);
+  const sfn=SF.filter((_,i)=>wsf[i]>0);
+  const afn=AF.filter((_,i)=>waf[i]>0);
+  if(wgn.length){
+    h+='<div class="sum-sec"><h3>Glass ('+wgn.length+' products)</h3>';
+    WGD.forEach((p,i)=>{if(!hasWG(i))return;const pts=p.sizes.filter(sz=>(wgs[i]?.[sz]||0)>0).map(sz=>`${sz}mm: ${wgs[i][sz]}`);h+=`<div class="sum-row"><div class="p">${p.product}</div><div class="v">${pts.join(', ')}</div></div>`;});
+    h+='</div>';
+  }
+  if(pvbn.length){
+    h+='<div class="sum-sec"><h3>PVB ('+pvbn.length+' rolls)</h3>';
+    PVB.forEach((p,i)=>{if(wpvb[i]<=0)return;h+=`<div class="sum-row"><div class="p">${p.type} — ${p.description.substring(0,40)}</div><div class="v">Qty: ${wpvb[i]}</div></div>`;});
+    h+='</div>';
+  }
+  if(evan.length){
+    h+='<div class="sum-sec"><h3>EVA ('+evan.length+' rolls)</h3>';
+    EVA.forEach((p,i)=>{if(weva[i]<=0)return;h+=`<div class="sum-row"><div class="p">${p.type} — ${p.description.substring(0,40)}</div><div class="v">Qty: ${weva[i]}</div></div>`;});
+    h+='</div>';
+  }
+  if(sfn.length){
+    h+='<div class="sum-sec"><h3>Shop Floor ('+sfn.length+' items)</h3>';
+    SF.forEach((p,i)=>{if(wsf[i]<=0)return;h+=`<div class="sum-row"><div class="p">${p.item}</div><div class="v">Qty: ${wsf[i]}</div></div>`;});
+    h+='</div>';
+  }
+  if(afn.length){
+    h+='<div class="sum-sec"><h3>A-Frames ('+afn.length+' items)</h3>';
+    AF.forEach((p,i)=>{if(waf[i]<=0)return;h+=`<div class="sum-row"><div class="p">${p.product}</div><div class="v">Qty: ${waf[i]}</div></div>`;});
+    h+='</div>';
+  }
+  if(!wgn.length&&!pvbn.length&&!evan.length&&!sfn.length&&!afn.length)h+='<p style="color:var(--smoke);text-align:center;padding:20px 0">No items counted yet.</p>';
+  document.getElementById('wmbody').innerHTML=h;
+  document.getElementById('wmacts').innerHTML=`<button class="btn-sec" onclick="closeWModal()">&#8592; Back</button><button class="btn-pri teal-btn" onclick="generateWeeklyPDF()">&#128190; Generate PDF</button>`;
+  document.getElementById('wmodal').classList.add('open');
+}
+
+function generateAllPDFs(){
+  const name=document.getElementById('wcname').value||'Unknown';
+  const date=document.getElementById('wcdate').value||today;
+  
+  if(!name.trim()){alert('Please enter your name');return;}
+  
+  // Determine active tab by checking which tab div is visible (not hidden)
+  let activeTab='glass';
+  if(!document.getElementById('wglass-tab').classList.contains('hidden')) activeTab='glass';
+  else if(!document.getElementById('wpvb-tab').classList.contains('hidden')) activeTab='pvb';
+  else if(!document.getElementById('weva-tab').classList.contains('hidden')) activeTab='eva';
+  else if(!document.getElementById('wsf-tab').classList.contains('hidden')) activeTab='sf';
+  else if(!document.getElementById('waf-tab').classList.contains('hidden')) activeTab='af';
+  
+  // Check which tabs have data
+  const hasglass=WGD.some((_,i)=>hasWG(i));
+  const haspvb=PVB.some((_,i)=>wpvb[i]>0);
+  const haseva=EVA.some((_,i)=>weva[i]>0);
+  const hassf=SF.some((_,i)=>wsf[i]>0);
+  const hasaf=AF.some((_,i)=>waf[i]>0);
+  
+  if(!hasglass&&!haspvb&&!haseva&&!hassf&&!hasaf){
+    alert('No items counted. Please count at least one item before generating.');
+    return;
+  }
+  
+  const btn=document.querySelector('.submit-btn');
+  if(btn){btn.disabled=true;btn.textContent='Generating PDFs...';}
+  
+  setTimeout(()=>{
+    try{
+      // Generate PDF ONLY for the active tab
+      if(activeTab==='glass' && hasglass) generateTabPDF('glass',name,date);
+      else if(activeTab==='pvb' && haspvb) generateTabPDF('pvb',name,date);
+      else if(activeTab==='eva' && haseva) generateTabPDF('eva',name,date);
+      else if(activeTab==='sf' && hassf) generateTabPDF('sf',name,date);
+      else if(activeTab==='af' && hasaf) generateTabPDF('af',name,date);
+      else {
+        alert('No items counted on this tab. Please count at least one item.');
+        if(btn){btn.disabled=false;btn.textContent='Generate & Download PDFs';}
+        return;
+      }
+      
+      // Show success screen
+      document.getElementById('wmodal').classList.remove('open');
+      document.getElementById('wdone').classList.add('show');
+      document.querySelector('#weekly-app .submit-bar').style.display='none';
+      document.getElementById('wglass-tab').classList.add('hidden');
+      document.getElementById('wpvb-tab').classList.add('hidden');
+      document.getElementById('weva-tab').classList.add('hidden');
+      document.getElementById('wsf-tab').classList.add('hidden');
+      document.getElementById('waf-tab').classList.add('hidden');
+      document.getElementById('weekly-tabs').style.display='none';
+      document.querySelector('#weekly-app .meta-row').style.display='none';
+      document.querySelector('#weekly-app .teal-bar').style.display='none';
+    }catch(e){
+      alert('Error: '+e.message);
+      if(btn){btn.disabled=false;btn.textContent='Generate & Download PDFs';}
+    }
+  },100);
+}
+
+function generateTabPDF(tabType,name,date){
+  if(typeof jspdf==='undefined'){
+    alert('The PDF library failed to load (check your internet connection) \u2014 please try again.');
+    return;
+  }
+  try{
+    const doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    let pdfTitle='';
+    let headColor=[27,58,107];
+
+    if(tabType==='glass'){
+      pdfTitle='SGP WEEKLY STOCK CHECK \u2014 GLASS';
+      headColor=[27,58,107];
+    } else if(tabType==='pvb'){
+      pdfTitle='SGP WEEKLY STOCK CHECK \u2014 PVB / INTERLAYER';
+      headColor=[0,180,166];
+    } else if(tabType==='eva'){
+      pdfTitle='SGP WEEKLY STOCK CHECK \u2014 EVA';
+      headColor=[39,174,96];
+    } else if(tabType==='sf'){
+      pdfTitle='SGP WEEKLY STOCK CHECK \u2014 SHOP FLOOR';
+      headColor=[74,53,128];
+    } else if(tabType==='af'){
+      pdfTitle='SGP WEEKLY STOCK CHECK \u2014 A-FRAMES';
+      headColor=[27,58,107];
+    }
+
+    doc.setFillColor(headColor[0],headColor[1],headColor[2]);
+    doc.rect(0,0,210,14,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(13);
+    doc.setFont(undefined,'bold');
+    doc.text(pdfTitle,6,9.5);
+    doc.setTextColor(61,74,92);
+    doc.setFontSize(10);
+    doc.setFont(undefined,'normal');
+    doc.text('Date: '+date+'     Counted by: '+name,6,21);
+
+    const y=27;
+    let hasRows=false;
+
+    if(tabType==='glass'){
+      const sz0=WGD[0]?.sizes?.[0]||'?';
+      const sz1=WGD[0]?.sizes?.[1]||'?';
+      const sz2=WGD[0]?.sizes?.[2]||'?';
+      const body=[];
+      const cats={};
+      WGD.forEach((p,i)=>{if(!hasWG(i))return;if(!cats[p.category])cats[p.category]=[];cats[p.category].push({p,i});});
+      Object.keys(cats).sort().forEach(cat=>{
+        body.push([{content:'--- '+cat.toUpperCase()+' ---',colSpan:4,styles:{fontStyle:'bold',fillColor:[245,247,250],textColor:[136,150,168]}}]);
+        cats[cat].forEach(({p,i})=>{
+          body.push([p.product, wgs[i]?.[p.sizes[0]]||'-', wgs[i]?.[p.sizes[1]]||'-', wgs[i]?.[p.sizes[2]]||'-']);
+        });
+      });
+      hasRows=body.length>0;
+      if(hasRows)doc.autoTable({
+        startY:y, head:[['PRODUCT',sz0+'mm',sz1+'mm',sz2+'mm']], body:body, theme:'grid',
+        headStyles:{fillColor:headColor,textColor:255,fontSize:8}, bodyStyles:{fontSize:8},
+        columnStyles:{1:{halign:'center'},2:{halign:'center'},3:{halign:'center'}}, margin:{left:6,right:6}
+      });
+    } else if(tabType==='pvb'||tabType==='eva'){
+      const arr=tabType==='pvb'?PVB:EVA;
+      const counts=tabType==='pvb'?wpvb:weva;
+      const body=[];
+      let prevSup='';
+      arr.forEach((p,i)=>{
+        if(counts[i]<=0)return;
+        if(p.supplier!==prevSup){
+          body.push([{content:'--- '+p.supplier.toUpperCase()+' ---',colSpan:8,styles:{fontStyle:'bold',fillColor:[245,247,250],textColor:[136,150,168]}}]);
+          prevSup=p.supplier;
+        }
+        body.push([p.supplier, p.type, p.description, p.min_stock, String(counts[i]), '', '', '']);
+      });
+      hasRows=body.length>0;
+      if(hasRows)doc.autoTable({
+        startY:y, head:[['SUPPLIER','TYPE','DESCRIPTION','MIN STOCK','QTY COUNTED','ORDER QTY','P/O NUMBER','NOTES']], body:body, theme:'grid',
+        headStyles:{fillColor:headColor,textColor:255,fontSize:7}, bodyStyles:{fontSize:7},
+        columnStyles:{3:{halign:'center'},4:{halign:'center'},5:{halign:'center'},6:{halign:'center'}}, margin:{left:6,right:6}
+      });
+    } else if(tabType==='sf'){
+      const body=[];
+      let prevSup='';
+      SF.forEach((p,i)=>{
+        if(wsf[i]<=0)return;
+        if(p.supplier!==prevSup){
+          body.push([{content:'--- '+p.supplier.toUpperCase()+' ---',colSpan:6,styles:{fontStyle:'bold',fillColor:[245,247,250],textColor:[136,150,168]}}]);
+          prevSup=p.supplier;
+        }
+        body.push([p.supplier, p.item, p.min_stock, String(wsf[i]), '', '']);
+      });
+      hasRows=body.length>0;
+      if(hasRows)doc.autoTable({
+        startY:y, head:[['SUPPLIER','ITEM','MIN STOCK','QTY COUNTED','ORDER QTY','NOTES']], body:body, theme:'grid',
+        headStyles:{fillColor:headColor,textColor:255,fontSize:8}, bodyStyles:{fontSize:8},
+        columnStyles:{2:{halign:'center'},3:{halign:'center'},4:{halign:'center'}}, margin:{left:6,right:6}
+      });
+    } else if(tabType==='af'){
+      const body=[];
+      AF.forEach((p,i)=>{
+        if(waf[i]<=0)return;
+        body.push([p.product, String(waf[i]), '', '', '']);
+      });
+      hasRows=body.length>0;
+      if(hasRows)doc.autoTable({
+        startY:y, head:[['A-FRAME SIZE','QTY COUNTED','ORDER QTY','P/O NUMBER','NOTES']], body:body, theme:'grid',
+        headStyles:{fillColor:headColor,textColor:255,fontSize:8}, bodyStyles:{fontSize:8},
+        columnStyles:{1:{halign:'center'},2:{halign:'center'},3:{halign:'center'}}, margin:{left:6,right:6}
+      });
+    }
+
+    if(!hasRows){
+      doc.setFontSize(11);
+      doc.text('No items counted yet.',6,y);
+    }
+
+    doc.save(pdfTitle.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'_'+date+'_'+name.replace(/\s+/g,'_')+'.pdf');
+  }catch(e){
+    alert('Error generating PDF: '+e.message);
+  }
+}
+function closeWModal(e){if(!e||e.target===document.getElementById('wmodal'))document.getElementById('wmodal').classList.remove('open');}
+
+// ═══════════════════════════════════════════════════════════════
+// SHAREPOINT CONNECTION  (monthly stocktake)
+// Only these 3 values ever need changing.
+// ═══════════════════════════════════════════════════════════════
+const CONFIG={
+  tenantId:'8bd55772-7872-4e5f-8dbd-223dbc3cdf88',
+  clientId:'6d8a2eaa-f0d9-4121-9d1d-12474d88198a',
+  siteUrl:'https://specialistglassproductsltd.sharepoint.com/sites/SGPProduction',
+  redirectUri:'https://sgpltd.github.io/stockcount/test.html',   // must match the app registration exactly
+  lists:{products:'SGP Products',counts:'Stock Counts',lines:'Stock Count Lines'}
+};
+const SUP_ABBR={'Pilkington':'PK','Saint-Gobain':'SG','AGC':'AGC','Guardian':'GU','Misc':'MI'};
+const GRAPH='https://graph.microsoft.com/v1.0';
+const SCOPES=['Sites.ReadWrite.All'];
+let pca=null,account=null,SITE=null;const LISTS={},COLS={};
+let MONTHS=[],CUR_MONTH=null,SERVER={},DIRTY=new Set(),WIPS={},KEYMAP={};
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const round=(x,d)=>Math.round((x||0)*Math.pow(10,d))/Math.pow(10,d);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function cfgReady(){return !/PASTE|YOURTENANT/.test(CONFIG.tenantId+CONFIG.clientId+CONFIG.siteUrl);}
+function busy(msg){const o=document.getElementById('sp-busy');if(msg){o.querySelector('.sp-busy-msg').textContent=msg;o.classList.add('open');}else o.classList.remove('open');}
+
+// ── Sign-in ───────────────────────────────────────────────────
+async function initAuth(){
+  if(!cfgReady()||typeof msal==='undefined')return;
+  try{
+    pca=new msal.PublicClientApplication({auth:{clientId:CONFIG.clientId,authority:'https://login.microsoftonline.com/'+CONFIG.tenantId,redirectUri:CONFIG.redirectUri,navigateToLoginRequestUrl:false},cache:{cacheLocation:'localStorage'}});
+    await pca.initialize();
+    const res=await pca.handleRedirectPromise().catch(e=>{console.error(e);return null;});
+    if(res&&res.account)account=res.account;
+    if(!account){const a=pca.getAllAccounts();if(a.length)account=a[0];}
+    if(account)pca.setActiveAccount(account);
+    showAccount();
+    const st=sessionStorage.getItem('sgp-start');if(account&&st){sessionStorage.removeItem('sgp-start');if(st==='report')startReport();else startMonthly();}
+  }catch(e){console.error(e);}
+}
+function showAccount(){
+  const el=document.getElementById('sp-account');if(!el)return;
+  el.innerHTML=account?`Signed in as <b>${esc(account.username)}</b> &middot; <a href="#" onclick="signOut();return false">Sign out</a>`:'';
+}
+function signOut(){if(pca&&account)pca.logoutRedirect({account,postLogoutRedirectUri:CONFIG.redirectUri});}
+async function getToken(){
+  try{return (await pca.acquireTokenSilent({scopes:SCOPES,account})).accessToken;}
+  catch(e){sessionStorage.setItem('sgp-start',document.getElementById('report-app')&&!document.getElementById('report-app').classList.contains('hidden')?'report':'monthly');await pca.acquireTokenRedirect({scopes:SCOPES,account});throw new Error('redirecting');}
+}
+
+// ── Graph helpers ─────────────────────────────────────────────
+async function gfetch(url,opts={},tries=0){
+  const tok=await getToken();
+  const r=await fetch(url.startsWith('http')?url:GRAPH+url,{...opts,headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json',...(opts.headers||{})}});
+  if((r.status===429||r.status===503||r.status===504)&&tries<5){await sleep(2000*(tries+1));return gfetch(url,opts,tries+1);}
+  if(!r.ok){let t='';try{t=(await r.json()).error?.message||'';}catch(e){}throw new Error(r.status+' '+t);}
+  return r.status===204?null:r.json();
+}
+async function gall(url,headers){let out=[],next=url;while(next){const j=await gfetch(next,{headers});out=out.concat(j.value||[]);next=j['@odata.nextLink'];}return out;}
+function fn(k,d){return COLS[k][d.toLowerCase()];}
+function fv(item,k,d){return (item.fields||{})[fn(k,d)];}
+
+async function connect(){
+  if(SITE)return;
+  const u=new URL(CONFIG.siteUrl);
+  SITE=(await gfetch(`/sites/${u.hostname}:${u.pathname.replace(/\/$/,'')}`)).id;
+  const lists=await gall(`/sites/${SITE}/lists?$select=id,displayName`);
+  for(const [k,name] of Object.entries(CONFIG.lists)){
+    const l=lists.find(x=>(x.displayName||'').trim().toLowerCase()===name.toLowerCase());
+    if(!l){SITE=null;throw new Error(`Can't find the list "${name}" on the SharePoint site.`);}
+    LISTS[k]=l.id;
+    const cols=await gall(`/sites/${SITE}/lists/${l.id}/columns?$select=name,displayName`);
+    COLS[k]={};cols.forEach(c=>{COLS[k][(c.displayName||'').trim().toLowerCase()]=c.name;});
+  }
+  const need={
+    products:['Item Description','Product ID','Item Code','Stock Type','Category','Supplier Name','Price Basis','Last Price','Currency','Thickness mm','Size 1 Label','Size 1 m2','Size 2 Label','Size 2 m2','Size 3 Label','Size 3 m2','Roll Width mm','Roll Length mm','Counted At Stocktake','Count Order','Active'],
+    counts:['Status','EUR to GBP','USD to GBP'],
+    lines:['Count Month','Product ID','Item Description','Supplier','Category','Stock Type','Qty Size 1','Qty Size 2','Qty Size 3','Qty','Price At Count','Currency','Exchange Rate','Total m2','Line Value GBP','Counted By','Counted On']
+  };
+  const missing=[];for(const k in need)need[k].forEach(d=>{if(!fn(k,d))missing.push(`${CONFIG.lists[k]}: ${d}`);});
+  if(missing.length){SITE=null;throw new Error('These columns are missing or named differently:\n- '+missing.join('\n- '));}
+}
+
+let ALLMONTHS=[];
+async function loadMonths(){
+  const items=await gall(`/sites/${SITE}/lists/${LISTS.counts}/items?$expand=fields&$top=999`);
+  ALLMONTHS=items.map(it=>({id:it.id,title:String(it.fields.Title||'').trim(),status:String(fv(it,'counts','Status')||''),
+    eur:Number(fv(it,'counts','EUR to GBP'))||0,usd:Number(fv(it,'counts','USD to GBP'))||0,
+    reviewed:fn('counts','Reviewed By')?String(fv(it,'counts','Reviewed By')||''):'',sent:fn('counts','Date Sent To Accountants')?fv(it,'counts','Date Sent To Accountants'):null}))
+    .filter(m=>m.title)
+    .sort((a,b)=>{const x=monthDate(a.title),y=monthDate(b.title);if(x&&y)return y-x;if(x)return -1;if(y)return 1;return Number(b.id)-Number(a.id);});
+  MONTHS=ALLMONTHS.filter(m=>m.status.toLowerCase()==='open');
+}
+async function loadProducts(){
+  const items=await gall(`/sites/${SITE}/lists/${LISTS.products}/items?$expand=fields&$top=999`);
+  const P=items.map(it=>{const g=d=>fv(it,'products',d);return{
+    name:String(g('Item Description')||'').trim(),pid:String(g('Product ID')||'').trim(),code:String(g('Item Code')||'').trim(),
+    type:String(g('Stock Type')||'').toLowerCase(),cat:String(g('Category')||'Other'),sup:String(g('Supplier Name')||'').trim(),
+    basis:String(g('Price Basis')||'').toLowerCase(),price:Number(g('Last Price'))||0,cur:String(g('Currency')||'GBP').toUpperCase().trim(),
+    mm:g('Thickness mm'),sizes:[[g('Size 1 Label'),g('Size 1 m2')],[g('Size 2 Label'),g('Size 2 m2')],[g('Size 3 Label'),g('Size 3 m2')]],
+    rw:Number(g('Roll Width mm'))||0,rl:Number(g('Roll Length mm'))||0,
+    counted:String(g('Counted At Stocktake')||'').toLowerCase()==='yes',active:String(g('Active')||'').toLowerCase()==='yes',
+    order:Number(g('Count Order'))||99999};
+  }).filter(p=>p.active&&p.counted&&p.name);
+  P.sort((a,b)=>a.order-b.order||a.name.localeCompare(b.name));
+  const gmap=new Map();
+  P.filter(p=>p.type==='glass').forEach(p=>{
+    const key=p.code||p.name;
+    if(!gmap.has(key)){
+      const sz=p.sizes.filter(s=>s[0]&&Number(s[1])>0);
+      const labels=sz.map(s=>String(s[0]).replace(/\s*mm$/i,'').trim());
+      gmap.set(key,{product:p.name,code:key,mm:(p.mm===null||p.mm===undefined||p.mm==='')?'':String(p.mm).replace(/\.0+$/,''),
+        category:p.cat,sizes:labels,sizeM2:sz.map(s=>Number(s[1])),nonStd:labels.join(',')!=='6000,2550,2250',rows:{},counts:{},wip:0});
+    }
+    if(p.sup&&SUPS.includes(p.sup))gmap.get(key).rows[p.sup]={price:p.price,pid:p.pid};
+  });
+  GD=[...gmap.values()];
+  CD=P.filter(p=>p.type==='consumable').map(p=>({product:p.name,category:p.cat,qty:0,supplier:p.sup,pid:p.pid||p.code,
+    price:p.price,cur:p.cur,perM2:p.basis.includes('m²')||p.basis.includes('m2'),rw:p.rw,rl:p.rl}));
+  KEYMAP={};
+  GD.forEach((p,i)=>{SUPS.forEach(s=>KEYMAP[gKey(i,s)]={t:'g',i,s});});
+  CD.forEach((p,i)=>KEYMAP[cKey(i)]={t:'c',i});
+}
+function gKey(i,s){return GD[i].rows[s]?.pid||`${GD[i].code}-${SUP_ABBR[s]}`;}
+function cKey(i){return CD[i].pid;}
+
+async function loadLines(m){
+  const flt=encodeURIComponent(`fields/${fn('lines','Count Month')} eq '${m.replace(/'/g,"''")}'`);
+  const items=await gall(`/sites/${SITE}/lists/${LISTS.lines}/items?$expand=fields&$top=999&$filter=${flt}`,{'Prefer':'HonorNonIndexedQueriesWarningMayFailRandomly'});
+  const map={};items.forEach(it=>{const pid=String(fv(it,'lines','Product ID')||'');if(pid)map[pid]={id:it.id,f:it.fields||{}};});
+  return map;
+}
+const LF=(L,d)=>Number(L.f[fn('lines',d)])||0;
+
+// ── State ─────────────────────────────────────────────────────
+function initState(){
+  gs={};cs={};WIPS={};
+  GD.forEach((p,i)=>{gs[i]={};SUPS.forEach(s=>{gs[i][s]={};p.sizes.forEach(sz=>gs[i][s][sz]=0);});WIPS[i]=0;});
+  CD.forEach((p,i)=>cs[i]=0);
+}
+function applyServer(){
+  GD.forEach((p,i)=>{
+    SUPS.forEach(s=>{const L=SERVER[gKey(i,s)];if(L)p.sizes.forEach((sz,n)=>gs[i][s][sz]=LF(L,'Qty Size '+(n+1)));});
+  });
+  CD.forEach((p,i)=>{const L=SERVER[cKey(i)];if(L)cs[i]=LF(L,'Qty');});
+}
+function stateOf(k){const r=KEYMAP[k];if(!r)return null;if(r.t==='g')return GD[r.i].sizes.map(sz=>gs[r.i][r.s][sz]||0);if(r.t==='w')return WIPS[r.i]||0;return cs[r.i]||0;}
+function setStateOf(k,v){const r=KEYMAP[k];if(!r)return;if(r.t==='g')GD[r.i].sizes.forEach((sz,n)=>gs[r.i][r.s][sz]=Number(v?.[n])||0);else if(r.t==='w')WIPS[r.i]=Number(v)||0;else cs[r.i]=Number(v)||0;}
+
+// ── Drafts saved on the phone ─────────────────────────────────
+const draftKey=m=>'sgp-stockcount-draft:'+m;
+function saveDraft(){if(!CUR_MONTH)return;try{const v={};DIRTY.forEach(k=>v[k]=stateOf(k));localStorage.setItem(draftKey(CUR_MONTH.title),JSON.stringify({name:document.getElementById('cname').value,v,t:Date.now()}));}catch(e){}}
+function restoreDraft(){try{const d=JSON.parse(localStorage.getItem(draftKey(CUR_MONTH.title))||'null');if(!d)return 0;let n=0;for(const k in d.v){if(KEYMAP[k]){setStateOf(k,d.v[k]);DIRTY.add(k);n++;}}if(d.name&&!document.getElementById('cname').value)document.getElementById('cname').value=d.name;return n;}catch(e){return 0;}}
+function clearDraft(){try{localStorage.removeItem(draftKey(CUR_MONTH.title));}catch(e){}}
+
+// These replace the originals above (same names) so every entry is remembered
+function setG(i,s,sz,v){gs[i][s][sz]=parseFloat(v)||0;DIRTY.add(gKey(i,s));saveDraft();const hd=hasG(i);const c=document.getElementById('pc'+i);if(c){c.classList.toggle('counted',hd);const b=c.querySelector('.prod-badge');if(b)b.textContent=hd?'Counted':GD[i].nonStd?'Non-std':'';}updAll();}
+function setC(i,v){cs[i]=parseFloat(v)||0;DIRTY.add(cKey(i));saveDraft();updAll();}
+
+// ── Start / month selection ───────────────────────────────────
+async function startMonthly(){
+  if(!cfgReady()){alert('The SharePoint connection has not been set up yet.');return;}
+  if(!pca){alert('Still loading - please try again in a moment.');return;}
+  if(!account){sessionStorage.setItem('sgp-start','monthly');pca.loginRedirect({scopes:SCOPES});return;}
+  try{
+    busy('Connecting to SharePoint...');
+    await connect();
+    busy('Loading products...');
+    await loadMonths();
+    if(!MONTHS.length){busy();alert('There is no open stocktake month yet.\n\nThe office needs to add this month to the Stock Counts list and set it to Open.');return;}
+    await loadProducts();
+    const sel=document.getElementById('cmonth');
+    sel.innerHTML=MONTHS.map(m=>`<option value="${esc(m.title)}">${esc(m.title)}</option>`).join('');
+    initState();
+    startMode('monthly');
+    await selectMonth(MONTHS[0].title);
+  }catch(e){busy();if(e.message!=='redirecting')alert('Could not load from SharePoint:\n\n'+e.message);}
+}
+async function selectMonth(title){
+  const m=MONTHS.find(x=>x.title===title);if(!m)return;
+  CUR_MONTH=m;document.getElementById('cmonth').value=title;
+  busy('Loading '+title+'...');
+  try{SERVER=await loadLines(title);}catch(e){busy();if(e.message!=='redirecting')alert('Could not load saved counts:\n\n'+e.message);return;}
+  initState();DIRTY=new Set();applyServer();
+  const restored=restoreDraft();
+  busy();
+  renderGlass(document.getElementById('gs').value);renderCons(document.getElementById('cs').value);updAll();
+  const saved=Object.keys(SERVER).length,note=document.getElementById('cmonth-note');
+  const bits=[];
+  if(saved)bits.push(`Counts have already been submitted for ${esc(title)} - you're seeing what's saved. Change anything that's wrong and submit again to update it.`);
+  if(restored)bits.push(`Restored ${restored} unsent ${restored===1?'entry':'entries'} from this phone.`);
+  note.innerHTML=bits.join('<br>');note.classList.toggle('hidden',!bits.length);
+}
+
+// ── Submit ────────────────────────────────────────────────────
+async function submitCount(){
+  const name=document.getElementById('cname').value.trim();
+  if(!name){alert('Please enter your name first.');return;}
+  if(!CUR_MONTH){alert('Please pick the month.');return;}
+  const btn=document.getElementById('mdlSubmitBtn');if(btn)btn.disabled=true;
+  try{
+    busy('Checking the month is still open...');
+    await loadMonths();
+    const m=MONTHS.find(x=>x.title===CUR_MONTH.title);
+    if(!m)throw new Error(CUR_MONTH.title+' has been closed, so it can no longer be changed. Your counts are still saved on this phone - speak to the office.');
+    CUR_MONTH=m;
+    if((CD.some(p=>p.cur==='EUR')&&!m.eur)||(CD.some(p=>p.cur==='USD')&&!m.usd))
+      throw new Error(`The exchange rates for ${m.title} haven't been filled in on the Stock Counts list yet. Ask the office to add them, then submit again - your counts are saved on this phone.`);
+    busy('Checking what has already been saved...');
+    const fresh=await loadLines(m.title);
+    const L=d=>fn('lines',d),now=new Date().toISOString(),reqs=[];
+    const rate=c=>c==='EUR'?m.eur:c==='USD'?m.usd:1;
+    const base=(key,desc,sup,cat,type,price,cur,r)=>{const f={Title:m.title+' | '+key};f[L('Count Month')]=m.title;f[L('Product ID')]=key;f[L('Item Description')]=desc;f[L('Supplier')]=sup;f[L('Category')]=cat;f[L('Stock Type')]=type;f[L('Price At Count')]=price;f[L('Currency')]=cur;f[L('Exchange Rate')]=r;return f;};
+    const push=(f,ex)=>{f[L('Counted By')]=name;f[L('Counted On')]=now;
+      reqs.push(ex?{method:'PATCH',url:`/sites/${SITE}/lists/${LISTS.lines}/items/${ex.id}/fields`,body:f}:{method:'POST',url:`/sites/${SITE}/lists/${LISTS.lines}/items`,body:{fields:f}});};
+
+    GD.forEach((p,i)=>{
+      SUPS.forEach(s=>{
+        const key=gKey(i,s),row=p.rows[s],ex=fresh[key],q=p.sizes.map(sz=>gs[i][s][sz]||0);
+        if(!row&&!ex&&!q.some(x=>x>0))return;                     // supplier not stocked & nothing counted
+        if(ex&&(!DIRTY.has(key)||q.every((x,n)=>x===LF(ex,'Qty Size '+(n+1)))))return; // unchanged
+        const price=ex?LF(ex,'Price At Count'):(row?row.price:0);
+        const m2=q.reduce((t,x,n)=>t+x*(p.sizeM2[n]||0),0);
+        const f=ex?{}:base(key,p.product,s,p.category,'Glass',price,'GBP',1);
+        q.forEach((x,n)=>f[L('Qty Size '+(n+1))]=x);
+        f[L('Total m2')]=round(m2,4);f[L('Line Value GBP')]=round(m2*price,2);
+        push(f,ex);
+      });
+    });
+
+    CD.forEach((p,i)=>{
+      const key=cKey(i),ex=fresh[key],q=cs[i]||0;
+      if(ex&&(!DIRTY.has(key)||LF(ex,'Qty')===q))return;
+      const price=ex?LF(ex,'Price At Count'):p.price, r=ex?(LF(ex,'Exchange Rate')||1):rate(p.cur);
+      const m2=p.perM2&&p.rw&&p.rl?q*(p.rw/1000)*(p.rl/1000):0;
+      const f=ex?{}:base(key,p.product,p.supplier||'',p.category,'Consumable',price,p.cur,r);
+      f[L('Qty')]=q;f[L('Total m2')]=round(m2,4);f[L('Line Value GBP')]=round((p.perM2?m2:q)*price*r,2);
+      push(f,ex);
+    });
+
+    if(!reqs.length){busy();clearDraft();DIRTY=new Set();alert('Nothing new to submit - everything matches what is already saved for '+m.title+'.');if(btn)btn.disabled=false;return;}
+    const fails=[];
+    for(let k=0;k<reqs.length;k+=20){
+      busy(`Saving to SharePoint... ${Math.min(k+20,reqs.length)} of ${reqs.length}`);
+      await runBatch(reqs.slice(k,k+20),fails);
+    }
+    busy();
+    if(fails.length){
+      if(btn)btn.disabled=false;
+      alert(`${reqs.length-fails.length} of ${reqs.length} lines saved, but ${fails.length} failed.\n\nYour counts are still on this phone - tap Submit again to retry (it won't create duplicates).\n\nFirst error: ${fails[0].msg}`);
+      return;
+    }
+    clearDraft();DIRTY=new Set();
+    showDone(reqs.length,m.title);
+  }catch(e){busy();if(btn)btn.disabled=false;if(e.message!=='redirecting')alert(e.message);}
+}
+async function runBatch(chunk,fails,tries=0){
+  const body={requests:chunk.map((r,n)=>({id:String(n+1),method:r.method,url:r.url,headers:{'Content-Type':'application/json'},body:r.body}))};
+  const res=await gfetch('/$batch',{method:'POST',body:JSON.stringify(body)});
+  const retry=[];
+  (res.responses||[]).forEach(rs=>{const r=chunk[Number(rs.id)-1];if(rs.status>=200&&rs.status<300)return;
+    if((rs.status===429||rs.status===503||rs.status===504)&&tries<5)retry.push(r);else fails.push({r,msg:rs.status+' '+(rs.body?.error?.message||'')});});
+  if(retry.length){await sleep(3000*(tries+1));await runBatch(retry,fails,tries+1);}
+}
+function showDone(n,title){
+  document.getElementById('modal').classList.remove('open');
+  document.getElementById('done-msg').textContent=`${n} ${n===1?'line':'lines'} saved to SharePoint for ${title}.`;
+  document.getElementById('done').classList.add('show');
+  document.querySelector('#monthly-app .submit-bar').style.display='none';
+  document.getElementById('glass-tab').classList.add('hidden');
+  document.getElementById('cons-tab').classList.add('hidden');
+  document.getElementById('cmonth-note').classList.add('hidden');
+  document.querySelector('#monthly-app .tab-nav').style.display='none';
+  document.querySelector('#monthly-app .meta-row').style.display='none';
+  document.querySelector('#monthly-app .amber-bar').style.display='none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT A COUNT FROM THE OLD APP'S EXCEL FILE (for the side-by-side test)
+// ═══════════════════════════════════════════════════════════════
+function importOldFile(input){
+  const file=input.files&&input.files[0];input.value='';
+  if(!file)return;
+  if(typeof XLSX==='undefined'){alert('Still loading - try again in a moment.');return;}
+  if(!confirm('This replaces everything on screen for '+(CUR_MONTH?CUR_MONTH.title:'this month')+' with the counts in "'+file.name+'". Carry on?'))return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets['Count Summary'];
+      if(!ws)throw new Error("This doesn't look like a file from the old stockcount app - it has no 'Count Summary' tab.");
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const norm=s=>String(s??'').trim().toLowerCase().replace(/\s+/g,' ');
+      let sec=null,curP='',who='',g=0,c=0;const miss=[];
+      initState();
+      rows.forEach(r=>{
+        const a=String(r[0]??'').trim();
+        if(a==='Counted by:'){who=String(r[1]??'').trim();return;}
+        if(a.startsWith('=== GLASS')){sec='g';return;}
+        if(a.startsWith('=== CONSUMABLES')){sec='c';return;}
+        if(sec==='g'){
+          if(a==='Product'&&String(r[1]).trim()==='Supplier')return;
+          if(!String(r[1]).trim())return;
+          if(a)curP=a;
+          const s=String(r[1]).trim(),sz=String(r[2]).replace(/\s*mm$/i,'').trim(),q=Number(r[3])||0;
+          const i=GD.findIndex(p=>norm(p.product)===norm(curP));
+          if(i<0||!SUPS.includes(s)||!GD[i].sizes.includes(sz)){miss.push(`${curP} - ${s} - ${sz}mm: ${q}`);return;}
+          gs[i][s][sz]=q;g++;
+        }else if(sec==='c'){
+          if(a==='Category'&&String(r[1]).trim()==='Product')return;
+          const pn=String(r[1]??'').trim();if(!pn)return;
+          const q=Number(r[3])||0,sup=norm(r[2]);
+          let i=CD.findIndex(p=>norm(p.product)===norm(pn)&&norm(p.supplier)===sup);
+          if(i<0)i=CD.findIndex(p=>norm(p.product)===norm(pn));
+          if(i<0){miss.push(`${pn}: ${q}`);return;}
+          cs[i]=q;c++;
+        }
+      });
+      if(!g&&!c&&!miss.length)throw new Error('No counts found in that file.');
+      DIRTY=new Set(Object.keys(KEYMAP));saveDraft();
+      if(who&&!document.getElementById('cname').value)document.getElementById('cname').value=who;
+      renderGlass(document.getElementById('gs').value);renderCons(document.getElementById('cs').value);updAll();
+      let msg=`Imported ${g} glass entries and ${c} consumables.`;
+      if(miss.length)msg+=`\n\n${miss.length} couldn't be matched to SGP Products (usually a name that's different or an item not added yet):\n- `+miss.slice(0,20).join('\n- ')+(miss.length>20?`\n...and ${miss.length-20} more`:'');
+      msg+='\n\nCheck the screen, then Review & Submit as normal.';
+      alert(msg);
+    }catch(err){alert(err.message);}
+  };
+  rd.readAsArrayBuffer(file);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MONTH-END REPORT FOR THE ACCOUNTANT
+// ═══════════════════════════════════════════════════════════════
+const REPORT_FLAG_POUNDS=500;   // flag any line whose value moved by at least this much
+const REPORT_FLAG_PCT=0.5;      // ...or by at least 50% (and at least £50)
+const MNAMES=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+function monthDate(t){const m=String(t).match(/([A-Za-z]+)\s+(\d{4})/);if(!m)return null;const i=MNAMES.indexOf(m[1].slice(0,3).toLowerCase());return i<0?null:new Date(Number(m[2]),i,1);}
+
+async function startReport(){
+  if(!cfgReady()){alert('The SharePoint connection has not been set up yet.');return;}
+  if(!pca){alert('Still loading - please try again in a moment.');return;}
+  if(!account){sessionStorage.setItem('sgp-start','report');pca.loginRedirect({scopes:SCOPES});return;}
+  try{
+    busy('Connecting to SharePoint...');
+    await connect();await loadMonths();
+    if(!GD.length&&!CD.length){busy('Loading products...');await loadProducts();}
+    busy();
+    if(!ALLMONTHS.length){alert('There are no months in the Stock Counts list yet.');return;}
+    const opts=ALLMONTHS.map(m=>`<option value="${esc(m.title)}">${esc(m.title)}${m.status.toLowerCase()==='open'?' (open)':''}</option>`).join('');
+    document.getElementById('rmonth').innerHTML=opts;
+    document.getElementById('mode-screen').classList.add('hidden');
+    document.getElementById('report-app').classList.remove('hidden');
+    repDefaultCompare();
+  }catch(e){busy();if(e.message!=='redirecting')alert('Could not load from SharePoint:\n\n'+e.message);}
+}
+function repDefaultCompare(){
+  const t=document.getElementById('rmonth').value,d=monthDate(t);
+  let prev=null;
+  if(d){prev=ALLMONTHS.filter(m=>{const x=monthDate(m.title);return x&&x<d;}).sort((a,b)=>monthDate(b.title)-monthDate(a.title))[0]||null;}
+  document.getElementById('rcomp').innerHTML='<option value="">(nothing - no comparison)</option>'+ALLMONTHS.filter(m=>m.title!==t).map(m=>`<option value="${esc(m.title)}"${prev&&prev.title===m.title?' selected':''}>${esc(m.title)}</option>`).join('');
+  document.getElementById('rstatus').textContent='';
+}
+
+async function downloadReport(){
+  if(typeof ExcelJS==='undefined'){alert('Still loading - try again in a moment.');return;}
+  const tm=document.getElementById('rmonth').value,cm=document.getElementById('rcomp').value;
+  const status=document.getElementById('rstatus');
+  try{
+    busy('Loading '+tm+'...');
+    const A=await loadLines(tm);
+    busy(cm?'Loading '+cm+'...':'Building report...');
+    const B=cm?await loadLines(cm):{};
+    busy('Building report...');
+    if(!Object.keys(A).length){busy();alert('Nothing has been submitted for '+tm+' yet.');return;}
+    const wb=await buildReport(tm,cm,A,B);
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const fname=`SGP Stock Report - ${tm}.xlsx`;
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);
+    busy();status.textContent=`Downloaded "${fname}".`;
+  }catch(e){busy();if(e.message!=='redirecting')alert('Could not build the report:\n\n'+e.message);}
+}
+
+async function buildReport(tm,cm,A,B){
+  const L=(line,d)=>{if(!line)return undefined;const k=fn('lines',d);return k?line.f[k]:undefined;};
+  const N=(line,d)=>Number(L(line,d))||0;
+  // order rows the same way the app shows them
+  const order={};
+  GD.forEach((p,i)=>SUPS.forEach((s,si)=>{order[gKey(i,s)]=i*10+si;}));
+  CD.forEach((p,i)=>{order[cKey(i)]=100000+i;});
+  const labelsFor=pid=>{const g=GD.find(p=>pid.startsWith(p.code+'-'));return g?g.sizes:['Size 1','Size 2','Size 3'];};
+  const isGlass=line=>/glass/i.test(String(L(line,'Stock Type')||''));
+  const qtyOf=line=>!line?0:isGlass(line)?N(line,'Qty Size 1')+N(line,'Qty Size 2')+N(line,'Qty Size 3'):N(line,'Qty');
+  const pids=[...new Set([...Object.keys(A),...Object.keys(B)])].sort((x,y)=>(order[x]??9e9)-(order[y]??9e9)||x.localeCompare(y));
+  const rows=pids.map(pid=>{
+    const t=A[pid],l=B[pid],any=t||l;
+    const glass=isGlass(any);
+    const brk=glass&&t?labelsFor(pid).map((lab,n)=>{const q=N(t,'Qty Size '+(n+1));return q?`${lab}: ${q}`:null;}).filter(Boolean).join(', '):'';
+    const tv=N(t,'Line Value GBP'),lv=N(l,'Line Value GBP'),tp=N(t,'Price At Count'),lp=N(l,'Price At Count');
+    const flags=[];
+    if(cm&&!l)flags.push('Not in '+cm);
+    if(!t)flags.push('Not in '+tm);
+    if(t&&qtyOf(t)>0&&!tp)flags.push('No price');
+    if(t&&l&&tp&&lp&&Math.abs(tp-lp)>0.0005)flags.push(`Price changed (${lp} to ${tp})`);
+    const dv=tv-lv;
+    if(cm&&Math.abs(dv)>=REPORT_FLAG_POUNDS)flags.push('Big change in value');
+    else if(cm&&lv>0&&Math.abs(dv)>=50&&Math.abs(dv)/lv>=REPORT_FLAG_PCT)flags.push('Big % change');
+    return{type:String(L(any,'Stock Type')||''),cat:String(L(any,'Category')||''),item:String(L(any,'Item Description')||''),sup:String(L(any,'Supplier')||''),pid,
+      brk,tq:qtyOf(t),tm2:N(t,'Total m2'),tp,cur:String(L(any,'Currency')||''),tv,lq:qtyOf(l),lm2:N(l,'Total m2'),lv,flags:flags.join('; '),
+      by:String(L(t,'Counted By')||''),on:L(t,'Counted On')?new Date(L(t,'Counted On')):null};
+  });
+
+  const wb=new ExcelJS.Workbook();wb.creator='SGP Stockcount';wb.created=new Date();wb.calcProperties.fullCalcOnLoad=true;
+  const sm=wb.addWorksheet('Summary');   // first tab
+  const SL='FF1A1F2E',AMB='FFF5A623',AMBP='FFFEF3DC',ICE='FFEBF0F5',GBP='£#,##0.00;[Red]-£#,##0.00';
+  const hdr=(row)=>{row.eachCell(c=>{c.font={bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:SL}};c.alignment={vertical:'middle',wrapText:true};});row.height=30;};
+
+  // ---- Full list ----
+  const fl=wb.addWorksheet('Full List',{views:[{state:'frozen',ySplit:1,xSplit:3}]});
+  const lastLbl=cm||'Last month';
+  fl.columns=[
+    {header:'Stock Type',width:12},{header:'Category',width:14},{header:'Item',width:40},{header:'Supplier',width:18},{header:'Product ID',width:13},
+    {header:`${tm}: sheets by size`,width:24},{header:`${tm}: qty / sheets`,width:12},{header:`${tm}: m²`,width:11},{header:`${tm}: price`,width:10},{header:'Currency',width:9},{header:`${tm}: value £`,width:13},
+    {header:`${lastLbl}: qty / sheets`,width:12},{header:`${lastLbl}: m²`,width:11},{header:`${lastLbl}: value £`,width:13},
+    {header:'Qty movement',width:11},{header:'Value movement £',width:14},{header:'Check',width:34},{header:'Counted by',width:14},{header:'Counted on',width:17}];
+  hdr(fl.getRow(1));
+  rows.forEach((r,n)=>{
+    const rn=n+2;
+    const row=fl.addRow([r.type,r.cat,r.item,r.sup,r.pid,r.brk,r.tq,r.tm2||null,r.tp||null,r.cur,r.tv,r.lq,r.lm2||null,r.lv,
+      {formula:`G${rn}-L${rn}`,result:r.tq-r.lq},{formula:`K${rn}-N${rn}`,result:round(r.tv-r.lv,2)},r.flags,r.by,r.on]);
+    row.getCell(8).numFmt='0.00';row.getCell(13).numFmt='0.00';row.getCell(9).numFmt='0.000';
+    [11,14,16].forEach(c=>row.getCell(c).numFmt=GBP);row.getCell(19).numFmt='dd/mm/yyyy hh:mm';
+    if(r.flags)row.eachCell({includeEmpty:true},c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:AMBP}};});
+  });
+  const last=rows.length+1,tot=fl.addRow(['','','TOTAL']);
+  tot.getCell(11).value={formula:`SUM(K2:K${last})`,result:round(rows.reduce((t,r)=>t+r.tv,0),2)};
+  tot.getCell(14).value={formula:`SUM(N2:N${last})`,result:round(rows.reduce((t,r)=>t+r.lv,0),2)};
+  tot.getCell(16).value={formula:`SUM(P2:P${last})`,result:round(rows.reduce((t,r)=>t+r.tv-r.lv,0),2)};
+  [11,14,16].forEach(c=>tot.getCell(c).numFmt=GBP);tot.font={bold:true};
+  tot.eachCell({includeEmpty:true},c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:ICE}};});
+  fl.autoFilter={from:'A1',to:{row:last,column:19}};
+
+  // ---- Summary ----
+  sm.columns=[{width:34},{width:16},{width:16},{width:16},{width:12},{width:30}];
+  sm.getCell('A1').value='SGP Monthly Stock Summary';sm.getCell('A1').font={bold:true,size:14};
+  sm.getCell('A2').value=`Count month: ${tm}`+(cm?`   ·   Compared with: ${cm}`:'');
+  sm.getCell('A3').value='Generated '+new Date().toLocaleString('en-GB')+' from SharePoint (Stock Count Lines). Every line is on the Full List tab.';
+  sm.getCell('A3').font={italic:true,color:{argb:'FF8896A8'}};
+  const FLr=`'Full List'!`,rng=c=>`${FLr}$${c}$2:$${c}$${last}`;
+  const sumIf=(col,crit)=>`SUMIFS(${rng(col)},${crit})`;
+  const hr=sm.getRow(5);hr.values=['',tm,cm||'—','Movement £','Movement %','Notes'];hdr(hr);hr.getCell(1).value='Stock category';
+  const tv=(f)=>round(rows.filter(f).reduce((t,r)=>t+r.tv,0),2),lvv=(f)=>round(rows.filter(f).reduce((t,r)=>t+r.lv,0),2);
+  const addLine=(rn,label,critA,filt,note)=>{
+    const r=sm.getRow(rn);r.getCell(1).value=label;
+    r.getCell(2).value={formula:sumIf('K',critA),result:tv(filt)};
+    r.getCell(3).value=cm?{formula:sumIf('N',critA),result:lvv(filt)}:null;
+    r.getCell(4).value=cm?{formula:`B${rn}-C${rn}`,result:round(tv(filt)-lvv(filt),2)}:null;
+    r.getCell(5).value=cm?{formula:`IF(C${rn}=0,"",D${rn}/C${rn})`,result:lvv(filt)?(tv(filt)-lvv(filt))/lvv(filt):''}:null;
+    [2,3,4].forEach(c=>r.getCell(c).numFmt=GBP);r.getCell(5).numFmt='0.0%';if(note)r.getCell(6).value=note;
+  };
+  addLine(6,'Glass stock',`${rng('A')},"Glass"`,r=>r.type==='Glass');
+  addLine(7,'Consumables',`${rng('A')},"Consumable"`,r=>r.type==='Consumable');
+  const w=sm.getRow(8);w.getCell(1).value='Work in progress';[2,3].forEach(c=>{w.getCell(c).numFmt=GBP;w.getCell(c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF99'}};});
+  w.getCell(6).value='Type in at year end (from the other system)';
+  w.getCell(4).value={formula:'IF(AND(B8="",C8=""),"",B8-C8)'};w.getCell(4).numFmt=GBP;
+  const t9=sm.getRow(9);t9.getCell(1).value='TOTAL CLOSING STOCK';
+  t9.getCell(2).value={formula:'SUM(B6:B8)',result:round(tv(r=>1),2)};
+  t9.getCell(3).value=cm?{formula:'SUM(C6:C8)',result:round(lvv(r=>1),2)}:null;
+  t9.getCell(4).value=cm?{formula:'B9-C9',result:round(tv(r=>1)-lvv(r=>1),2)}:null;
+  t9.getCell(5).value=cm?{formula:'IF(C9=0,"",D9/C9)'}:null;
+  [2,3,4].forEach(c=>t9.getCell(c).numFmt=GBP);t9.getCell(5).numFmt='0.0%';t9.font={bold:true};
+  t9.eachCell({includeEmpty:true},c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:ICE}};});
+
+  let rn=11;const ch=sm.getRow(rn);ch.values=['Consumables by category',tm,cm||'—','Movement £','Movement %',''];hdr(ch);rn++;
+  const cats=[...new Set(rows.filter(r=>r.type==='Consumable').map(r=>r.cat))];
+  cats.forEach(cat=>{addLine(rn,cat,`${rng('A')},"Consumable",${rng('B')},"${cat.replace(/"/g,'""')}"`,r=>r.type==='Consumable'&&r.cat===cat);rn++;});
+  rn++;
+  const flagged=rows.filter(r=>r.flags).length;
+  sm.getCell(`A${rn}`).value='Lines flagged to check';sm.getCell(`B${rn}`).value=flagged;sm.getCell(`F${rn}`).value='Highlighted on the Full List tab - filter the Check column';rn+=2;
+  const mo=ALLMONTHS.find(m=>m.title===tm)||{};
+  const counters=[...new Set(rows.map(r=>r.by).filter(Boolean))].join(', ');
+  const so=sm.getRow(rn);so.values=['Sign-off'];so.font={bold:true};rn++;
+  [['Count completed by',counters],['Reviewed by',mo.reviewed||''],['Date sent to accountants',mo.sent?new Date(mo.sent):'']].forEach(([a,b])=>{const r=sm.getRow(rn++);r.getCell(1).value=a;r.getCell(2).value=b;if(b instanceof Date)r.getCell(2).numFmt='dd/mm/yyyy';});
+  return wb;
+}
+initAuth();
+</script>
+<div id="sp-busy" class="sp-busy"><div class="sp-busy-box"><div class="sp-spin"></div><div class="sp-busy-msg"></div></div></div>
+</body>
+</html>
